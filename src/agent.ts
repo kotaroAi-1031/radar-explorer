@@ -266,7 +266,7 @@ function buildTools(env: Env) {
             articleUrls: new Set(withFetched.map((a) => a.url)),
             articles: withFetched,
             baseline: BASELINES[qid] ?? "",
-            existingProse: await recentViewProse(env, qid),
+            existingProse: await recentViewProse(env, qid, cluster.key),
           });
           const viewId = await saveView(
             env,
