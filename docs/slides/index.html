@@ -91,19 +91,19 @@ body.print .notes { display: block; margin-top: 18px; border-top: 1px dashed var
   <div class="body"><h1>一次情報レーダー探検UI</h1>
   <p class="subtitle">世界情勢で「いま注目されているもの」を、出典つきで読む</p>
   <div class="prose"><blockquote>本システムの実装と本資料の作成は、すべて AI エージェント Muse が行った</blockquote></div></div>
-  <footer><span class="deck-title">一次情報レーダー探検UI</span><span class="page">1 / 11</span></footer>
+  <footer><span class="deck-title">一次情報レーダー探検UI</span><span class="page">1 / 12</span></footer>
   <aside class="notes"><p>一次情報レーダーの探索画面の発表。公開先は radar-explorer.tanoshimi494.workers.dev（public）。</p></aside>
 </section>
 <section class="slide text" data-index="1" aria-label="つくったのは Muse">
   <div class="body"><h2>つくったのは Muse</h2>
   <div class="prose"><ul><li>本システムの設計・実装・テストと、本資料の作成は、すべて AI エージェント <strong>Muse</strong> が行った</li><li>外部の AI API（OpenAI・Anthropic 等）は使っていない</li><li>AI は Cloudflare Workers AI 上のモデルだけを、binding 経由で呼ぶ（外部にデータを出さない）</li></ul></div></div>
-  <footer><span class="deck-title">一次情報レーダー探検UI</span><span class="page">2 / 11</span></footer>
+  <footer><span class="deck-title">一次情報レーダー探検UI</span><span class="page">2 / 12</span></footer>
   <aside class="notes"><p>人間（所有者）は要件と判断を出し、実装と資料作成は Muse が担当した。</p></aside>
 </section>
 <section class="slide text" data-index="2" aria-label="課題と狙い">
   <div class="body"><h2>課題と狙い</h2>
   <div class="prose"><ul><li>一次情報は散らばっている：6つの問いの記事が世界中の媒体に分散し、追い切れない</li><li>要約だけでは出典が消える：誰の・いつの報道か分からない情報は、判断に使えない</li><li>狙い：自動で集めた記事を「出典つきの部品」で読み、出来事ごとに追えるようにする</li></ul></div></div>
-  <footer><span class="deck-title">一次情報レーダー探検UI</span><span class="page">3 / 11</span></footer>
+  <footer><span class="deck-title">一次情報レーダー探検UI</span><span class="page">3 / 12</span></footer>
   <aside class="notes"><p>問いは6つ：イスラエル・ガザ・イラン、米国の対中南米・対麻薬政策、日本の経由地化、テックのパワー構造、AI一次情報、セキュリティ実務。</p></aside>
 </section>
 <section class="slide figure-only" data-index="3" aria-label="シーケンス図（対話の流れ）">
@@ -156,7 +156,7 @@ body.print .notes { display: block; margin-top: 18px; border-top: 1px dashed var
 <rect x="382" y="1114" width="101" height="21" fill="black"></rect>
 <rect x="135" y="1204" width="101" height="21" fill="black"></rect>
 </mask></svg></svg></div></div></div>
-  <footer><span class="deck-title">一次情報レーダー探検UI</span><span class="page">4 / 11</span></footer>
+  <footer><span class="deck-title">一次情報レーダー探検UI</span><span class="page">4 / 12</span></footer>
   <aside class="notes"><p>質問への回答は、実データを部品に詰めて返す。モデルの仕事は部品選びだけで、数値と出典はツール結果の実データが正。静的な構成図は infra-diagram.svg に参考資料として残してある。</p></aside>
 </section>
 <section class="slide figure-only" data-index="4" aria-label="シーケンス図（自動生成の流れ）">
@@ -208,7 +208,7 @@ body.print .notes { display: block; margin-top: 18px; border-top: 1px dashed var
 <rect x="854" y="1024" width="43" height="21" fill="black"></rect>
 <rect x="1521" y="1114" width="206" height="21" fill="black"></rect>
 </mask></svg></svg></div></div></div>
-  <footer><span class="deck-title">一次情報レーダー探検UI</span><span class="page">5 / 11</span></footer>
+  <footer><span class="deck-title">一次情報レーダー探検UI</span><span class="page">5 / 12</span></footer>
   <aside class="notes"><p>新着が溜まると出来事の画面が自動で増える。生成と検証の段取りは対話と同じで、検証を通らない画面は保存されない。</p></aside>
 </section>
 <section class="slide split" data-index="5" aria-label="Generative UI の仕組み">
@@ -242,7 +242,7 @@ body.print .notes { display: block; margin-top: 18px; border-top: 1px dashed var
 <rect x="-21" y="-21" width="707" height="108" fill="white"></rect>
 
 </mask></svg></svg></div></div></div></div>
-  <footer><span class="deck-title">一次情報レーダー探検UI</span><span class="page">6 / 11</span></footer>
+  <footer><span class="deck-title">一次情報レーダー探検UI</span><span class="page">6 / 12</span></footer>
   <aside class="notes"><p>部品は記事カード／時系列／媒体一覧／統計チップ／見立てパネル／トーンチャート。LLM が生 HTML を作らないので、表示は決定的に再現できる。</p></aside>
 </section>
 <section class="slide split" data-index="6" aria-label="自動生成と検証ゲート">
@@ -276,31 +276,37 @@ body.print .notes { display: block; margin-top: 18px; border-top: 1px dashed var
 <rect x="-21" y="-21" width="1400" height="108" fill="white"></rect>
 
 </mask></svg></svg></div></div></div></div>
-  <footer><span class="deck-title">一次情報レーダー探検UI</span><span class="page">7 / 11</span></footer>
+  <footer><span class="deck-title">一次情報レーダー探検UI</span><span class="page">7 / 12</span></footer>
   <aside class="notes"><p>検証ゲートは機械的な確認：画面に出る出典 URL と数値が、ツールの返した実データに存在しなければ弾く。</p></aside>
 </section>
 <section class="slide text" data-index="7" aria-label="無料枠の運用">
   <div class="body"><h2>無料枠の運用</h2>
   <div class="prose"><ul><li>外部の AI API は使わない：AI は Cloudflare Workers AI 上のモデル（Llama 4 Scout 17B／Mistral Small 3.1 24B／Llama 3.1 8B）のみで、binding 経由で完結する</li><li>天井は Workers AI の 10,000 neurons/日。実質の上限はここだけ</li><li>自動生成は Llama 4 Scout 17B（実測 約77 neurons/件）、チャットは Mistral Small 3.1 24B</li><li>6,000 で軽いモデルに落とし、8,000 で自動生成を止める（日次カウンタで管理）</li><li>70B は使わない：役割分担は実測で決めた</li></ul></div></div>
-  <footer><span class="deck-title">一次情報レーダー探検UI</span><span class="page">8 / 11</span></footer>
+  <footer><span class="deck-title">一次情報レーダー探検UI</span><span class="page">8 / 12</span></footer>
   <aside class="notes"><p>他の無料枠（リクエスト数、D1 の読み書き）はこの規模では先に枯れない。neurons は 00:00 UTC リセット。</p></aside>
 </section>
 <section class="slide text" data-index="8" aria-label="品質の担保">
   <div class="body"><h2>品質の担保</h2>
   <div class="prose"><ul><li>React Doctor 100/100、oxlint 0件、型チェック（tsrs）0 errors</li><li>Vitest 46件全通過：振る舞いをブラックボックスで検証</li><li>変異テスト 82.9%（@mizchi/mutator）：テストが本当に効いているかも測る</li><li>変更はブランチ＋PR、CI 緑でマージ、署名つきコミット</li></ul></div></div>
-  <footer><span class="deck-title">一次情報レーダー探検UI</span><span class="page">9 / 11</span></footer>
+  <footer><span class="deck-title">一次情報レーダー探検UI</span><span class="page">9 / 12</span></footer>
   <aside class="notes"><p>ゲートの数値は実装側の完了報告で実測されたもの。</p></aside>
 </section>
-<section class="slide text" data-index="9" aria-label="使用ライブラリ">
+<section class="slide text" data-index="9" aria-label="開発ツール（サンドボックス）">
+  <div class="body"><h2>開発ツール（サンドボックス）</h2>
+  <div class="prose"><ul><li>開発は Muse のサンドボックス（Linux VM）で完結し、デプロイもここから行った</li><li>品質ゲート：React Doctor、oxlint・oxfmt、tsrs（型チェック）、Vitest、@mizchi/mutator（変異テスト）</li><li>CI の門番：jactionlint・sisakulint（Actions の検査）、Betterleaks＋Lefthook（シークレット混入の検査）</li><li>土台と調査：gh CLI（PR 運用）、cf CLI（Cloudflare 操作）、Nix Flakes（ツールの版管理）、Exa（一次情報の検索）、MDN の BCD（ブラウザ対応の裏取り）</li><li>仕上げは、ブラウザで本番サイトを実際に操作して動作確認した</li></ul></div></div>
+  <footer><span class="deck-title">一次情報レーダー探検UI</span><span class="page">10 / 12</span></footer>
+  <aside class="notes"><p>品質ゲート系の版は docs/dependencies.md の実測表が正（React Doctor 0.9.22、oxlint 1.92.0、oxfmt 0.77.0、Vitest 5.1.0、@mizchi/mutator 0.2.0、tsrs 0.20.1-ts7.1.0-beta、cf 1.0.0-beta.28）。コミットは SSH 署名つき。</p></aside>
+</section>
+<section class="slide text" data-index="10" aria-label="使用ライブラリ">
   <div class="body"><h2>使用ライブラリ</h2>
   <div class="prose"><ul><li>対話と Generative UI：agents 0.33.0、@cloudflare/ai-chat 0.12.2、ai 7.0.164、@ai-sdk/react 4.0.168、streamdown 2.7.1</li><li>MCP と検証：@modelcontextprotocol/server 2.4.0、zod 4.6.7</li><li>画面：React 19.3.1、@tanstack/charts 1.4.0、@base-ui/react 1.9.0</li><li>データ：@libsql/client 0.18.0（Turso への読み取り接続）</li><li>開発と品質：Vite 8.3.6、TypeScript 7.0.2、tsrs 0.20.1-ts7.1.0-beta、oxlint 1.92.0、Vitest 5.1.0、@mizchi/mutator 0.2.0、cf 1.0.0-beta.28</li></ul></div></div>
-  <footer><span class="deck-title">一次情報レーダー探検UI</span><span class="page">10 / 11</span></footer>
+  <footer><span class="deck-title">一次情報レーダー探検UI</span><span class="page">11 / 12</span></footer>
   <aside class="notes"><p>版は 2026-11-07 に npm レジストリで実測した採用版（docs/dependencies.md が正）。agents 等は package.json で latest 指定だが、実測版をここに記す。</p></aside>
 </section>
-<section class="slide text" data-index="10" aria-label="現状と次">
+<section class="slide text" data-index="11" aria-label="現状と次">
   <div class="body"><h2>現状と次</h2>
   <div class="prose"><ul><li>正直な現状：収集プールは8月のバックフィル中心（問い1は0件、最先端は概ね2026-08-14）。「いま」はまだ8月の話</li><li>tone 値は収集中の範囲では未収録で、トーンの線は空状態（値が埋まれば自動で出る）</li><li>次：収集が現在に追いつくこと。UI はチャット中心＋スレッド管理の形へ作り替え中</li></ul></div></div>
-  <footer><span class="deck-title">一次情報レーダー探検UI</span><span class="page">11 / 11</span></footer>
+  <footer><span class="deck-title">一次情報レーダー探検UI</span><span class="page">12 / 12</span></footer>
   <aside class="notes"><p>制約は隠さない方針。鮮度の遅れは収集側の回復待ちで、画面側の欠陥ではない。</p></aside>
 </section>
 </div>
