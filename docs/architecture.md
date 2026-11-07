@@ -16,10 +16,15 @@
 - データ: Turso `radar-gdelt-q1`〜`q6` は読み取り専用。新規 D1 を 1 つ
   （`generated_views` / `state` / `neurons`）
 - 運用: デプロイとリソース操作は `cf` CLI（npm パッケージ `cf`）
-- 認証: **付けない（public 運用）**。当初は Cloudflare Access を予定したが、
-  アカウント側で Access が未有効化（API が `access.api.error.not_enabled`）
-  だったことと、扱うデータが公開ニュースのメタデータのみであることから、
-  ユーザーが 2026-11-07 に「最初はアクセスなし」「public で」と決定した
+- 認証: **Cloudflare Access で所有者本人のみに制限**（Access Application
+  「Radar Explorer」、許可はメールアドレス宛ワンタイムコードでログインした
+  本人 1 名のみ、セッション 24 時間）。導入経緯: 当初はアカウント側で Access
+  が未有効化（API が `access.api.error.not_enabled`）だったことと、扱う
+  データが公開ニュースのメタデータのみであることから、ユーザーが
+  2026-11-07 に一旦「最初はアクセスなし」「public で」と決定したが、
+  同日中に Access 有効化（Zero Trust 組織 + One-time PIN プロバイダ作成）と
+  併せて制限ありへ切り替えた。再デプロイ前の Worker は Access を素通りする
+  （workers.dev の組み込みプロキシ経由）ため、制限の発効にはデプロイが必要
 
 ## Durable Object の役割分担
 
