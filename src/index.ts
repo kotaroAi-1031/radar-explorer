@@ -43,7 +43,7 @@ export default {
     }
 
     if (url.pathname === "/api/check-now" && request.method === "POST") {
-      const stub = await getAgentByName(env.EXPLORER, "main");
+      const stub = await getAgentByName(env.EXPLORER_AGENT, "main");
       const summary = await stub.runRadarCheck();
       return json(summary);
     }
@@ -56,7 +56,7 @@ export default {
     env: Env,
     ctx: ExecutionContext,
   ): Promise<void> {
-    const stub = await getAgentByName(env.EXPLORER, "main");
+    const stub = await getAgentByName(env.EXPLORER_AGENT, "main");
     ctx.waitUntil(
       stub
         .runRadarCheck()
