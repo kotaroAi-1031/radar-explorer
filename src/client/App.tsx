@@ -495,6 +495,7 @@ export function App() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [views, setViews] = useState<GeneratedView[]>([]);
   const [openView, setOpenView] = useState<GeneratedView | null>(null);
+  const [creating, setCreating] = useState(false);
   const creatingRef = useRef(false);
 
   const loadThreads = useCallback(async () => {
@@ -515,9 +516,14 @@ export function App() {
     }
   }, []);
 
+  // Duplicate-creation guard, two layers: the ref blocks a second call
+  // while a create request is in flight (double-clicks, key repeats),
+  // and the `creating` state disables the button for the same window so
+  // the block is also visible.
   const createThread = useCallback(async () => {
     if (creatingRef.current) return null;
     creatingRef.current = true;
+    setCreating(true);
     try {
       const res = await fetch("/api/threads", { method: "POST" });
       if (!res.ok) return null;
@@ -526,6 +532,7 @@ export function App() {
       return data.thread;
     } finally {
       creatingRef.current = false;
+      setCreating(false);
     }
   }, []);
 
@@ -570,8 +577,13 @@ export function App() {
             <p className="eyebrow">PRIMARY SOURCE RADAR</p>
             <h1>一次情報レーダー 探検UI</h1>
           </div>
-          <button type="button" className="new-thread" onClick={() => void startNewThread()}>
-            ＋ 新しいスレッド
+          <button
+            type="button"
+            className="new-thread"
+            onClick={() => void startNewThread()}
+            disabled={creating}
+          >
+            {creating ? "作成中…" : "＋ 新しいスレッド"}
           </button>
           <nav className="thread-list" aria-label="スレッド一覧">
             {threads.map((t) => (

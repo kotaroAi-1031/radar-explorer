@@ -31,8 +31,8 @@ const SYSTEM_PROMPT = `あなたは「一次情報レーダー探検UI」の案�
 - 事実の主張は必ずツールで取得した記事・見立てに基づいて行い、出典（媒体ドメインとURL）を添える。ツールで確認できないことは「プールにはまだ無い」と正直に言う。
 - 収集プールは現在バックフィル中で、frontier（最新の記事日時）が現在日時より大幅に遅れている問いがある。pool_status で鮮度を確認し、欠落や遅れがあれば最初に断る。プールに無い出来事を、起きていないかのように語らない。
 - get_baseline（現時点の見立て）と get_thread（記録）を読んでから、その問いの見立てについて語る。
-- 問いの全体像や出来事の画面が欲しいと言われたら build_view で画面（ダッシュボード）を生成して見せる。生成済みの画面は list_views で引ける。
-- 「いま何が注目されている？」「世界情勢の注目は？」のように漠然と聞かれたら hot_events を呼ぶ。返ってくる順位は報道量（記事件数）などでコードが決定的に付けたものなので、その順序を入れ替えずに紹介し、各出来事に問いのタグ・記事数・対象期間（poolLatest）を添える。特定の出来事の画面を求められたら show_event（cluster_key は hot_events の返り値のものを使う）でその出来事の画面を出す。
+- 問いの全体像を画面で見たいと明示的に言われたら build_view で画面（ダッシュボード）を生成して見せる。自分から進んで画面を生成しない。生成済みの画面は list_views で引ける。
+- 「いま何が注目されている？」「世界情勢の注目は？」のように漠然と聞かれたら hot_events を呼ぶ。返ってくる順位は報道量（記事件数）などでコードが決定的に付けたものなので、その順序を入れ替えずに紹介し、各出来事に問いのタグ・記事数・対象期間（poolLatest）を添える。ランキングの回答では出来事の提示だけに留めること。個別の出来事の画面はチャットからは生成できない（そのためのツールは無い）。利用者が特定の出来事の画面を見たがったら、出来事ごとに表示される「画面を見る」ボタンを押すよう案内する。例として1件だけ選んで画面を出すようなことは決してしない。
 - 回答は日本語で、結論から簡潔に。推測と事実を区別する。`;
 
 // Tools never throw: an empty pool is a normal empty result, and any
@@ -178,26 +178,14 @@ function buildTools(env: Env) {
         }
       },
     }),
-    show_event: tool({
-      description:
-        "hot_events が返した出来事（cluster_key で指定）の画面をその場で生成して返す。記事カード・時系列・出典・見立てパネルを含む。",
-      inputSchema: z.object({
-        question_id: qidInput,
-        cluster_key: z.string(),
-      }),
-      execute: async (args) => {
-        const qid = normalizeQid(args.question_id);
-        if (!qid) return { error: "問い（q1〜q6）を特定できませんでした。" };
-        try {
-          const built = await buildEventView(env, qid, args.cluster_key);
-          if (!built) return { error: "その出来事はプールの更新で見つからなくなりました。" };
-          return { viewId: built.viewId, view: built.spec, warnings: built.warnings };
-        } catch (err) {
-          console.error("show_event failed", err);
-          return { error: "画面の生成に失敗しました。" };
-        }
-      },
-    }),
+    // NOTE: there is deliberately no "show one event" tool here. An
+    // event's view is generated only when the user presses the
+    // 「画面を見る」 button in a hot_events answer, which goes through
+    // POST /api/threads/:id/event-view → appendEventView. When the model
+    // had a callable tool for it, it would pick an example event on its
+    // own initiative right after a ranking answer and generate its view
+    // unasked — so the capability is withheld at the tool-definition
+    // layer, not merely discouraged in the prompt.
     build_view: tool({
       description:
         "指定した問いの画面（ダッシュボード）をその場で生成する。プールの最新記事から部品（統計・記事カード・時系列・トーングラフ・媒体一覧・見立てパネル）を組み立て、生成済み画面として保存もする。全体像を見たいとき、出来事を画面で見たいときに使う。",
@@ -302,9 +290,15 @@ export class ExplorerAgent extends AIChatAgent<Env> {
     }
   }
 
-  /** RPC entry for POST /api/threads/:id/event-view: generate one ranked
-   *  event's view and append it to this thread as a message pair, so the
-   *  screen appears inside the conversation and survives reloads. */
+  /** RPC entry for POST /api/threads/:id/event-view — the ONLY path that
+   *  generates an individual event's view, reached only when the user
+   *  presses the event's 「画面を見る」 button. Appends the view to this
+   *  thread as a single assistant message (no synthetic user turn: the
+   *  history must not gain user-style messages nobody wrote), so the
+   *  screen appears inside the conversation and survives reloads. The
+   *  part type stays "tool-show_event" so the client renders it with the
+   *  same component as before; it is a rendering label, not a callable
+   *  tool — the chat model has no such tool. */
   async appendEventView(
     questionIdRaw: unknown,
     clusterKeyRaw: unknown,
@@ -323,11 +317,6 @@ export class ExplorerAgent extends AIChatAgent<Env> {
     if (!built) {
       return { error: "その出来事はプールの更新で見つからなくなりました。" };
     }
-    const userMessage = {
-      id: crypto.randomUUID(),
-      role: "user",
-      parts: [{ type: "text", text: `「${built.spec.title}」の画面を見せて` }],
-    } as UIMessage;
     const assistantMessage = {
       id: crypto.randomUUID(),
       role: "assistant",
@@ -342,7 +331,7 @@ export class ExplorerAgent extends AIChatAgent<Env> {
         },
       ],
     } as UIMessage;
-    await this.persistMessages([...this.messages, userMessage, assistantMessage]);
+    await this.persistMessages([...this.messages, assistantMessage]);
     await this.touchThreadRecord();
     return { viewId: built.viewId };
   }
