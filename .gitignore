@@ -27,3 +27,4 @@ dist/
 
 # cf CLI build output and generated types
 .cloudflare/
+.mutator/
