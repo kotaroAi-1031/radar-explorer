@@ -200,6 +200,51 @@ export function rankEvents<T extends RankedEventCandidate>(events: readonly T[])
 }
 
 // ---------------------------------------------------------------------------
+// Thread titles
+// ---------------------------------------------------------------------------
+
+/** Stored title of a thread that has not been titled yet. The sidebar
+ *  shows it verbatim as a fixed placeholder — never a date/time string,
+ *  which reads as a broken title rather than a name for the chat. */
+export const THREAD_PLACEHOLDER_TITLE = "新しいチャット";
+
+/** The placeholder stored before titles were generated; rows carrying
+ *  it are still "untitled" for titling purposes. */
+export const LEGACY_THREAD_PLACEHOLDER_TITLE = "新しいスレッド";
+
+export function isPlaceholderTitle(title: string): boolean {
+  return title === THREAD_PLACEHOLDER_TITLE || title === LEGACY_THREAD_PLACEHOLDER_TITLE;
+}
+
+/** Target length for a generated thread title (full-width characters). */
+export const THREAD_TITLE_MAX_CHARS = 20;
+
+/** Fallback title when no model title is available: the first user
+ *  message with whitespace collapsed, cut to the title length. */
+export function fallbackTitle(firstUserText: string): string {
+  const flat = firstUserText.replace(/\s+/g, " ").trim();
+  const chars = [...flat];
+  if (chars.length <= THREAD_TITLE_MAX_CHARS) return flat;
+  return chars.slice(0, THREAD_TITLE_MAX_CHARS).join("") + "…";
+}
+
+/** Normalise raw model output into a usable title: first non-empty
+ *  line, surrounding quotes stripped, hard-capped a little above the
+ *  target length. Returns "" when nothing usable remains — the caller
+ *  then falls back to fallbackTitle. */
+export function sanitizeGeneratedTitle(raw: string): string {
+  const line =
+    raw
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .find((s) => s.length > 0) ?? "";
+  const unquoted = line.replace(/^[「『"“'']+|[」』"”'']+$/g, "").trim();
+  const cap = THREAD_TITLE_MAX_CHARS + 4;
+  const chars = [...unquoted];
+  return chars.length > cap ? chars.slice(0, cap).join("") : unquoted;
+}
+
+// ---------------------------------------------------------------------------
 // Verification gate helpers
 // ---------------------------------------------------------------------------
 

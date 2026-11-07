@@ -1,15 +1,20 @@
 import { describe, expect, it } from "vitest";
 import {
+  LEGACY_THREAD_PLACEHOLDER_TITLE,
   MODEL_FAST,
   MODEL_MAIN,
+  THREAD_PLACEHOLDER_TITLE,
   allowedNumbersFor,
   clusterArticles,
   dateToSeendate,
   estimateNeurons,
   extractNumbers,
   extractUrls,
+  fallbackTitle,
+  isPlaceholderTitle,
   pickModelForUsage,
   rankEvents,
+  sanitizeGeneratedTitle,
   seendateToDate,
   shouldTrigger,
   titleTokens,
@@ -301,6 +306,52 @@ describe("event ranking", () => {
 
   it("returns an empty list for empty input", () => {
     expect(rankEvents([])).toEqual([]);
+  });
+});
+
+describe("thread titles", () => {
+  it("treats both the current and the legacy placeholder as untitled", () => {
+    expect(isPlaceholderTitle(THREAD_PLACEHOLDER_TITLE)).toBe(true);
+    expect(isPlaceholderTitle(LEGACY_THREAD_PLACEHOLDER_TITLE)).toBe(true);
+    expect(isPlaceholderTitle("ガザ情勢の見立て")).toBe(false);
+    expect(isPlaceholderTitle("これまでの会話")).toBe(false);
+    expect(isPlaceholderTitle("")).toBe(false);
+  });
+
+  it("fallback title keeps a short first message as-is", () => {
+    expect(fallbackTitle("いま何が注目されてる？")).toBe("いま何が注目されてる？");
+  });
+
+  it("fallback title collapses whitespace and newlines", () => {
+    expect(fallbackTitle("  ガザの\n  情勢は？\t")).toBe("ガザの 情勢は？");
+  });
+
+  it("fallback title truncates a long message to 20 chars plus an ellipsis", () => {
+    const long = "あ".repeat(35);
+    expect(fallbackTitle(long)).toBe("あ".repeat(20) + "…");
+    expect(fallbackTitle("")).toBe("");
+    expect(fallbackTitle("   ")).toBe("");
+  });
+
+  it("sanitizes a plain model title", () => {
+    expect(sanitizeGeneratedTitle("ガザ情勢と米以関係")).toBe("ガザ情勢と米以関係");
+  });
+
+  it("sanitize takes the first non-empty line and strips surrounding quotes", () => {
+    expect(sanitizeGeneratedTitle("\n「カルテルの海上密輸ルート」\n補足の説明")).toBe(
+      "カルテルの海上密輸ルート",
+    );
+    expect(sanitizeGeneratedTitle('"AIの一次情報まとめ"')).toBe("AIの一次情報まとめ");
+  });
+
+  it("sanitize returns an empty string when nothing usable remains", () => {
+    expect(sanitizeGeneratedTitle("")).toBe("");
+    expect(sanitizeGeneratedTitle("  \n  ")).toBe("");
+    expect(sanitizeGeneratedTitle("「」")).toBe("");
+  });
+
+  it("sanitize hard-caps an overlong title at 24 chars", () => {
+    expect(sanitizeGeneratedTitle("あ".repeat(40))).toBe("あ".repeat(24));
   });
 });
 

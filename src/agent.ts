@@ -6,6 +6,7 @@ import type { Env } from "./env";
 import { BASELINES, THREADS } from "./content.generated";
 import {
   MODEL_CHAT,
+  MODEL_FAST,
   buildEventView,
   estimateNeurons,
   hotEvents,
@@ -14,7 +15,13 @@ import {
   saveView,
   type RadarCheckSummary,
 } from "./generate";
-import { clusterArticles } from "./logic";
+import {
+  THREAD_PLACEHOLDER_TITLE,
+  clusterArticles,
+  fallbackTitle,
+  isPlaceholderTitle,
+  sanitizeGeneratedTitle,
+} from "./logic";
 import { fallbackChoice, materializeViewSpec, verifyViewSpec } from "./views";
 import {
   QUESTION_IDS,
@@ -254,11 +261,25 @@ function buildTools(env: Env) {
   };
 }
 
+interface AiRunResult {
+  response?: unknown;
+  usage?: { prompt_tokens?: number; completion_tokens?: number };
+}
+
+function messageText(message: UIMessage): string {
+  return message.parts
+    .filter((p) => p.type === "text")
+    .map((p) => (p as { text?: string }).text ?? "")
+    .join("")
+    .trim();
+}
+
 export class ExplorerAgent extends AIChatAgent<Env> {
   /** Keep the D1 thread index (sidebar) in step with this conversation:
-   *  bump updated_at on every turn, and take the title from the first
-   *  user message while the thread is still unnamed. Bookkeeping only —
-   *  a failure here must never break the chat itself. */
+   *  bump updated_at on every turn, inserting the row with the fixed
+   *  placeholder title when it is missing. The real title is set by
+   *  maybeGenerateTitle once the first exchange completes. Bookkeeping
+   *  only — a failure here must never break the chat itself. */
   private async touchThreadRecord(): Promise<void> {
     try {
       const id = this.name;
@@ -268,25 +289,72 @@ export class ExplorerAgent extends AIChatAgent<Env> {
         "INSERT INTO threads (id, title, created_at, updated_at) VALUES (?,?,?,?) " +
           "ON CONFLICT(id) DO UPDATE SET updated_at = excluded.updated_at",
       )
-        .bind(id, "新しいスレッド", now, now)
+        .bind(id, THREAD_PLACEHOLDER_TITLE, now, now)
         .run();
-      const userMessages = this.messages.filter((m) => m.role === "user");
-      if (userMessages.length === 1) {
-        const text = userMessages[0].parts
-          .filter((p) => p.type === "text")
-          .map((p) => (p as { text?: string }).text ?? "")
-          .join("")
-          .trim();
-        if (text) {
-          await this.env.DB.prepare(
-            "UPDATE threads SET title = ? WHERE id = ? AND title = '新しいスレッド'",
-          )
-            .bind([...text].slice(0, 40).join(""), id)
-            .run();
-        }
-      }
     } catch (err) {
       console.error("thread record update failed", err);
+    }
+  }
+
+  /** Give an untitled thread a real title once the first exchange
+   *  (first user message + its reply) exists. Runs only at the end of
+   *  a chat turn — i.e. only in response to a message the user sent,
+   *  never on connect or on read. The light 8B model writes a short
+   *  title (no dates); when the model is unavailable or returns
+   *  nothing usable, the title falls back to the truncated first user
+   *  message. Once a non-placeholder title is stored this is a no-op,
+   *  so later turns never rename a thread. Failures are swallowed:
+   *  titling must never break the chat. */
+  private async maybeGenerateTitle(assistantReplyText: string): Promise<void> {
+    try {
+      const id = this.name;
+      if (!id) return;
+      const row = await this.env.DB.prepare("SELECT title FROM threads WHERE id = ?")
+        .bind(id)
+        .first<{ title: string }>();
+      if (!row || !isPlaceholderTitle(row.title)) return;
+      const firstUser = this.messages.find((m) => m.role === "user");
+      if (!firstUser) return;
+      const userText = messageText(firstUser);
+      if (!userText) return;
+      const firstAssistant = this.messages.find((m) => m.role === "assistant");
+      const assistantText =
+        (firstAssistant ? messageText(firstAssistant) : "") || assistantReplyText;
+      let title = "";
+      try {
+        const res = (await this.env.AI.run(MODEL_FAST, {
+          messages: [
+            {
+              role: "system",
+              content:
+                "あなたは会話に短い日本語の題名を付ける係です。題名だけを1行で出力してください。説明文・引用符・末尾の句読点は付けないでください。",
+            },
+            {
+              role: "user",
+              content:
+                `次のやり取りの内容を表す題名を、日本語で20文字以内で付けてください。` +
+                `日付や時刻は含めないでください。\n\n利用者: ${userText.slice(0, 400)}\n案内役: ${assistantText.slice(0, 400)}`,
+            },
+          ],
+          max_tokens: 48,
+        })) as AiRunResult;
+        const neurons = estimateNeurons(
+          MODEL_FAST,
+          res.usage?.prompt_tokens ?? 0,
+          res.usage?.completion_tokens ?? 0,
+        );
+        if (neurons > 0) await recordNeurons(this.env, neurons).catch(() => undefined);
+        title = sanitizeGeneratedTitle(typeof res.response === "string" ? res.response : "");
+      } catch (err) {
+        console.error("thread title generation failed", err);
+      }
+      if (!title) title = fallbackTitle(userText);
+      if (!title) return;
+      await this.env.DB.prepare("UPDATE threads SET title = ? WHERE id = ? AND title = ?")
+        .bind(title, id, row.title)
+        .run();
+    } catch (err) {
+      console.error("thread title update failed", err);
     }
   }
 
@@ -354,6 +422,9 @@ export class ExplorerAgent extends AIChatAgent<Env> {
           ).catch(() => undefined);
         }
         await onFinish(event as never);
+        // The turn is complete: if this was the thread's first
+        // exchange, it now has the material for a proper title.
+        await this.maybeGenerateTitle(event.text ?? "");
       },
     });
     return result.toUIMessageStreamResponse();

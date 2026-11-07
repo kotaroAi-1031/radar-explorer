@@ -339,7 +339,10 @@ function MessageParts({
 // Chat panel: one thread = one agent instance. Remounted per thread
 // (keyed by thread id in App), so switching threads reloads its history.
 // The initial state is just the message area (empty) and the composer —
-// nothing is pre-rendered before the user asks.
+// nothing is pre-rendered before the user asks. Connecting only replays
+// the stored history (read-only): no model call, no new message. A turn
+// starts solely from the composer's submit (or the explicit
+// 「画面を見る」 button for an event view).
 // ---------------------------------------------------------------------------
 
 function ChatPanel({
@@ -541,16 +544,17 @@ export function App() {
       const list = await loadThreads();
       void loadViews();
       const stored = localStorage.getItem(ACTIVE_THREAD_KEY);
+      // Opening the app is strictly read-only: it never creates a
+      // thread (or anything else). Threads are created only by the
+      // ＋ 新しいスレッド button; generation happens only when the
+      // user types a question and sends it.
       if (list && list.length > 0) {
         setActiveId(stored && list.some((t) => t.id === stored) ? stored : list[0].id);
-      } else if (list) {
-        const created = await createThread();
-        setActiveId(created?.id ?? "main");
       } else {
         setActiveId(stored ?? "main");
       }
     })();
-  }, [loadThreads, loadViews, createThread]);
+  }, [loadThreads, loadViews]);
 
   useEffect(() => {
     if (activeId) localStorage.setItem(ACTIVE_THREAD_KEY, activeId);
