@@ -287,11 +287,21 @@ function factualProse<T extends Article>(
   questionLabel: string,
 ): Pick<ViewChoice, "title" | "summary" | "impact"> {
   const top = cluster.articles[0];
+  // The summary names this event's own headlines: a fixed template
+  // sentence would be (correctly) flagged by the gate's duplicate
+  // detection as recycled prose, and the question label's number would
+  // trip the prose-number check. Event-specific and factual only.
+  const headlines = cluster.articles
+    .slice(0, 2)
+    .map((a) => a.title)
+    .filter((t): t is string => typeof t === "string" && t.length > 0);
+  const summary =
+    headlines.length > 0
+      ? `${headlines.map((t) => `「${t}」`).join("、")}など、同じ出来事を報じた記事 ${cluster.articles.length} 件を検知しました。内訳は下の部品のとおりです。`
+      : `同じ出来事を報じた記事 ${cluster.articles.length} 件を検知しました。内訳は下の部品のとおりです。`;
   return {
     title: top?.title ?? questionLabel,
-    summary:
-      `${questionLabel}について、同じ出来事を報じた記事 ${cluster.articles.length} 件を検知しました。` +
-      `内訳は下の部品のとおりです。`,
+    summary,
     impact: "",
   };
 }
