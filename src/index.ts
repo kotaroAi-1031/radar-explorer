@@ -27,6 +27,50 @@ export default {
       return json({ error: "agent route not found" }, 404);
     }
 
+    if (url.pathname === "/api/threads" && request.method === "GET") {
+      // Seed the legacy single conversation ("main") the first time the
+      // index is read, so its history stays reachable from the list.
+      await env.DB.prepare(
+        "INSERT INTO threads (id, title, created_at, updated_at) SELECT 'main', 'これまでの会話', ?, ? " +
+          "WHERE NOT EXISTS (SELECT 1 FROM threads)",
+      )
+        .bind(new Date().toISOString(), new Date().toISOString())
+        .run()
+        .catch(() => undefined);
+      const rs = await env.DB.prepare(
+        "SELECT id, title, created_at, updated_at FROM threads ORDER BY updated_at DESC LIMIT 100",
+      ).all();
+      return json({ threads: rs.results });
+    }
+
+    if (url.pathname === "/api/threads" && request.method === "POST") {
+      const now = new Date().toISOString();
+      const thread = {
+        id: crypto.randomUUID(),
+        title: "新しいスレッド",
+        created_at: now,
+        updated_at: now,
+      };
+      await env.DB.prepare(
+        "INSERT INTO threads (id, title, created_at, updated_at) VALUES (?,?,?,?)",
+      )
+        .bind(thread.id, thread.title, thread.created_at, thread.updated_at)
+        .run();
+      return json({ thread }, 201);
+    }
+
+    const eventViewMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/event-view$/);
+    if (eventViewMatch && request.method === "POST") {
+      const body = (await request.json().catch(() => null)) as {
+        questionId?: unknown;
+        clusterKey?: unknown;
+      } | null;
+      if (!body) return json({ error: "invalid body" }, 400);
+      const stub = await getAgentByName(env.EXPLORER_AGENT, eventViewMatch[1]);
+      const result = await stub.appendEventView(body.questionId, body.clusterKey);
+      return json(result, "error" in result ? 404 : 200);
+    }
+
     if (url.pathname === "/api/status") {
       const [questions, neurons] = await Promise.all([poolStatus(env), neuronsUsedToday(env)]);
       return json({ questions, neuronsUsedToday: neurons });

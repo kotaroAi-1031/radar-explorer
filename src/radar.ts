@@ -124,6 +124,32 @@ export async function searchArticles(env: Env, opts: SearchOptions): Promise<Art
   }));
 }
 
+/** The pool's newest articles for a question, latest first. Used for
+ *  event clustering (attention ranking and event views), where the input
+ *  window must be identical across calls so cluster keys stay stable. */
+export async function recentArticles(
+  env: Env,
+  questionId: QuestionId,
+  limit = 150,
+): Promise<Article[]> {
+  const db = tursoClient(env, questionId);
+  const rs = await db.execute({
+    sql:
+      "SELECT url, title, domain, language, source_country, seendate, tone " +
+      "FROM articles WHERE question_id = ? ORDER BY seendate DESC, url ASC LIMIT ?",
+    args: [questionId, Math.min(Math.max(limit, 1), 200)],
+  });
+  return rs.rows.map((r) => ({
+    url: String(r.url),
+    title: (r.title as string | null) ?? null,
+    domain: (r.domain as string | null) ?? null,
+    language: (r.language as string | null) ?? null,
+    sourceCountry: (r.source_country as string | null) ?? null,
+    seendate: (r.seendate as string | null) ?? null,
+    tone: r.tone === null ? null : Number(r.tone),
+  }));
+}
+
 export async function toneTrend(
   env: Env,
   questionId: QuestionId,
