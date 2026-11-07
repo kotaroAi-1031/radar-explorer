@@ -2,6 +2,7 @@ import { getAgentByName, routeAgentRequest } from "agents";
 import type { Env } from "./env";
 import { mcpHandler } from "./mcp";
 import { neuronsUsedToday } from "./generate";
+import { THREAD_PLACEHOLDER_TITLE } from "./logic";
 import { poolStatus } from "./radar";
 
 export { ExplorerAgent } from "./agent";
@@ -47,7 +48,10 @@ export default {
       const now = new Date().toISOString();
       const thread = {
         id: crypto.randomUUID(),
-        title: "新しいスレッド",
+        // Fixed placeholder until the first exchange earns a generated
+        // title (see maybeGenerateTitle in agent.ts). Never a timestamp:
+        // a date is not a title.
+        title: THREAD_PLACEHOLDER_TITLE,
         created_at: now,
         updated_at: now,
       };
