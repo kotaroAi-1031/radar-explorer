@@ -25,7 +25,7 @@ const worker = defineWorker({
   env: {
     AI: bindings.ai(),
     DB: bindings.d1({ name: "radar-explorer" }),
-    EXPLORER: bindings.durableObject({
+    EXPLORER_AGENT: bindings.durableObject({
       worker: "radar-explorer",
       exportName: "ExplorerAgent",
     }),
