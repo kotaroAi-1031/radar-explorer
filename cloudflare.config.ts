@@ -3,10 +3,10 @@ import * as entrypoint from "./src/index.ts" with { type: "cf-worker" };
 
 // Single Worker: static assets (React SPA) + the ExplorerAgent Durable
 // Object + the stateless MCP endpoint + an hourly cron that watches the
-// collector databases for new arrivals and drafts thread entries.
+// collector databases for new arrivals and generates event views.
 // Storage: the radar data itself lives in Turso (read-only here); this
-// Worker's own D1 holds drafts, diff-detection state and the neurons
-// counter. See README.md.
+// Worker's own D1 holds generated views, chat-thread index rows,
+// diff-detection state and the neurons counter. See README.md.
 const worker = defineWorker({
   name: "radar-explorer",
   compatibilityDate: "2026-10-15",
