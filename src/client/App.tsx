@@ -599,7 +599,7 @@ export function App() {
               >
                 <span className="thread-title">{t.title}</span>
                 <span className="thread-meta">
-                  {new Date(t.updated_at).toLocaleString("ja-JP")}
+                  最終更新 {new Date(t.updated_at).toLocaleString("ja-JP")}
                 </span>
               </button>
             ))}

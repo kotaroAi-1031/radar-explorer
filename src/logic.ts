@@ -245,6 +245,40 @@ export function sanitizeGeneratedTitle(raw: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Prose similarity (duplicate detection for generated views)
+// ---------------------------------------------------------------------------
+
+/** Normalise prose for comparison: case-folded, with all whitespace and
+ *  punctuation removed, so cosmetic differences cannot hide a copy. */
+export function normalizeProseText(s: string): string {
+  return s.toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, "");
+}
+
+function charBigrams(s: string): Set<string> {
+  const grams = new Set<string>();
+  for (let i = 0; i + 1 < s.length; i++) grams.add(s.slice(i, i + 2));
+  return grams;
+}
+
+/** Deterministic similarity of two prose strings: the Dice coefficient
+ *  over character bigrams of the normalised text (works for Japanese,
+ *  which has no word boundaries). 1 = identical after normalisation,
+ *  0 = nothing shared. Short strings (< 2 chars after normalisation)
+ *  only score on exact equality. */
+export function proseSimilarity(a: string, b: string): number {
+  const na = normalizeProseText(a);
+  const nb = normalizeProseText(b);
+  if (!na || !nb) return 0;
+  if (na === nb) return 1;
+  if (na.length < 2 || nb.length < 2) return 0;
+  const ga = charBigrams(na);
+  const gb = charBigrams(nb);
+  let inter = 0;
+  for (const g of ga) if (gb.has(g)) inter++;
+  return (2 * inter) / (ga.size + gb.size);
+}
+
+// ---------------------------------------------------------------------------
 // Verification gate helpers
 // ---------------------------------------------------------------------------
 

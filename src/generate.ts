@@ -42,11 +42,17 @@ import { BASELINES } from "./content.generated";
 import {
   VIEW_SECTION_TYPES,
   fallbackChoice,
+  isDuplicateWarning,
   materializeViewSpec,
+  ruleBasedChoice,
   verifyViewSpec,
+  viewChoiceProblems,
+  type ChoiceSource,
   type ViewChoice,
   type ViewSpec,
 } from "./views";
+
+export type { ChoiceSource };
 
 export { MODEL_CHAT, MODEL_FAST, MODEL_MAIN, estimateNeurons };
 
@@ -86,13 +92,15 @@ const VIEW_CHOICE_SCHEMA = {
     impact: { type: "string" },
     sections: {
       type: "array",
+      minItems: 3,
+      maxItems: 6,
       items: {
         type: "object",
         properties: {
           type: { type: "string", enum: VIEW_SECTION_TYPES },
           heading: { type: "string" },
         },
-        required: ["type"],
+        required: ["type", "heading"],
         additionalProperties: false,
       },
     },
@@ -101,15 +109,20 @@ const VIEW_CHOICE_SCHEMA = {
   additionalProperties: false,
 } as const;
 
+// The catalog is listed by purpose, in an order deliberately unrelated
+// to any layout: an earlier version listed the parts in the fallback's
+// fixed order (with summary/assessment marked mandatory and pinned to
+// the head/tail), which anchored the model into emitting that same
+// order for every event.
 const SECTION_GUIDE =
-  "部品カタログ（sections に type を並べる。順序がそのまま画面の並びになる）:\n" +
-  "- summary: 出来事の要約（文章）※必須\n" +
-  "- stat_row: プールの数字（累計・最先端・直近24h・この出来事の件数）\n" +
-  "- article_cards: 記事カード列（出典リンク付き）\n" +
-  "- timeline: 記事の時系列\n" +
+  "部品カタログ（sections に type と heading を並べる。並べた順序がそのまま画面の並びになる）:\n" +
+  "- article_cards: 記事カード列（出典リンク付き）。出来事そのものを見せたいときに\n" +
+  "- source_list: 報じた媒体の一覧と件数。報道の広がりが要点のときに\n" +
+  "- timeline: 記事の時系列。出来事の推移が要点のときに\n" +
   "- tone_chart: その問いの日別件数と平均トーンのグラフ\n" +
-  "- source_list: 報じた媒体の一覧と件数\n" +
-  "- assessment: 見立てパネル（現時点の見立て抜粋＋見立てへの影響）※必須";
+  "- stat_row: プールの数字（累計・最先端・直近24h・この出来事の件数）\n" +
+  "- summary: 出来事の要約（文章）\n" +
+  "- assessment: 見立てパネル（現時点の見立て抜粋＋見立てへの影響）";
 
 interface AiRunResult {
   response?: unknown;
@@ -132,10 +145,10 @@ async function chooseViewLayout(
     `この出来事専用の画面（ダッシュボード）を設計してください。あなたが決めるのは部品の選択と並び順、そして文章だけです。数値データや記事データはシステムが部品に流し込みます。\n\n` +
     `${SECTION_GUIDE}\n\n` +
     `出力（JSON）:\n` +
-    `- title: 画面のタイトル（日本語、出来事の見出し）\n` +
-    `- summary: 何が起きたか（日本語、記事群から読み取れる事実のみ。記事に無い数値・固有名詞を発明しない）\n` +
-    `- impact: 見立てへの影響（下記の見立てに照らした意味。判断できなければ「現時点では見立てに影響なし」）\n` +
-    `- sections: 部品の並び（4〜6個。summary を先頭、assessment を最後に置くこと）\n\n` +
+    `- title: 画面のタイトル（日本語、この出来事固有の見出し。問いの名前や見立て文の使い回しは禁止）\n` +
+    `- summary: 何が起きたか（日本語、記事群から読み取れる事実のみ。記事に無い数値・固有名詞を発明しない。見立ての文章を書き写さず、この出来事について書くこと）\n` +
+    `- impact: 見立てへの影響（下記の見立てに照らした、この出来事固有の意味。判断できなければ空文字列にする。定型文は書かない）\n` +
+    `- sections: 部品の並び（3〜6個）。順序はこの出来事の要点に合った順序を自由に決めること（先頭・末尾の固定はない）。各部品には、この出来事に即した具体的な見出し（heading）を必ず付けること\n\n` +
     `\n${baseline}\n\n` +
     `\n${lines}\n`;
   const res = (await env.AI.run(model, {
@@ -172,12 +185,45 @@ async function chooseViewLayout(
   ) {
     throw new Error("view choice JSON did not match the expected shape");
   }
+  const problems = viewChoiceProblems(choice);
+  if (problems.length > 0) {
+    throw new Error(`view choice rejected: ${problems.join("; ")}`);
+  }
   return { choice, neurons };
 }
 
 // ---------------------------------------------------------------------------
 // View assembly for one cluster (shared by cron generation)
 // ---------------------------------------------------------------------------
+
+/** Title + summary of the most recent views for a question, used by the
+ *  gate's duplicate checks. Reading failures degrade to "no history"
+ *  rather than blocking generation. */
+export async function recentViewProse(
+  env: Env,
+  qid: QuestionId,
+  limit = 20,
+): Promise<{ title: string; summary: string }[]> {
+  try {
+    const rs = await env.DB.prepare(
+      "SELECT title, spec FROM generated_views WHERE question_id = ? ORDER BY id DESC LIMIT ?",
+    )
+      .bind(qid, limit)
+      .all();
+    return rs.results.map((r) => {
+      let summary = "";
+      try {
+        const spec = JSON.parse(String(r.spec)) as ViewSpec;
+        summary = spec.sections.find((s) => s.type === "summary")?.text ?? "";
+      } catch {
+        summary = "";
+      }
+      return { title: String(r.title), summary };
+    });
+  } catch {
+    return [];
+  }
+}
 
 export async function generateViewForCluster(
   env: Env,
@@ -186,33 +232,66 @@ export async function generateViewForCluster(
   cluster: Cluster<Article & { fetchedAt: string }>,
   pool: PoolStatusEntry,
   origin: "cron" | "chat",
-): Promise<{ spec: ViewSpec; warnings: string[] }> {
-  let choice: ViewChoice;
-  try {
-    ({ choice } = await chooseViewLayout(env, model, qid, cluster));
-  } catch {
-    choice = fallbackChoice(cluster, QUESTION_LABELS[qid]);
+): Promise<{
+  spec: ViewSpec;
+  warnings: string[];
+  choiceSource: ChoiceSource;
+  model: string | null;
+}> {
+  const [trend, existingProse] = await Promise.all([
+    toneTrend(env, qid, 30).catch(() => []),
+    recentViewProse(env, qid),
+  ]);
+  const assemble = (choice: ViewChoice): { spec: ViewSpec; warnings: string[] } => {
+    const spec = materializeViewSpec({
+      questionId: qid,
+      generatedAt: new Date().toISOString(),
+      origin,
+      cluster,
+      choice,
+      trend,
+      pool: {
+        total: pool.total,
+        frontier: pool.frontier,
+        recent24h: pool.recent24h,
+      },
+      baseline: BASELINES[qid] ?? "",
+    });
+    const warnings = verifyViewSpec(spec, {
+      articleUrls: new Set(cluster.articles.map((a) => a.url)),
+      articles: cluster.articles,
+      baseline: BASELINES[qid] ?? "",
+      existingProse,
+    });
+    return { spec, warnings };
+  };
+
+  let choiceSource: ChoiceSource = "model";
+  let usedModel: string | null = model;
+  let result: { spec: ViewSpec; warnings: string[] } | null = null;
+  // One regeneration attempt when the gate flags recycled prose: the
+  // audited failure mode was the model copying the baseline (or a
+  // previous view's title) instead of writing about this event.
+  for (let attempt = 0; attempt < 2 && result === null; attempt++) {
+    try {
+      const { choice } = await chooseViewLayout(env, model, qid, cluster);
+      const built = assemble(choice);
+      if (!built.warnings.some(isDuplicateWarning) || attempt === 1) {
+        result = built;
+      }
+    } catch {
+      break;
+    }
   }
-  const trend = await toneTrend(env, qid, 30).catch(() => []);
-  const spec = materializeViewSpec({
-    questionId: qid,
-    generatedAt: new Date().toISOString(),
-    origin,
-    cluster,
-    choice,
-    trend,
-    pool: {
-      total: pool.total,
-      frontier: pool.frontier,
-      recent24h: pool.recent24h,
-    },
-    baseline: BASELINES[qid] ?? "",
-  });
-  const warnings = verifyViewSpec(spec, {
-    articleUrls: new Set(cluster.articles.map((a) => a.url)),
-    articles: cluster.articles,
-  });
-  return { spec, warnings };
+  if (result === null || result.warnings.some(isDuplicateWarning)) {
+    // Model unusable, or its prose stayed recycled after a retry: fall
+    // back to the deterministic choice (its title is this event's top
+    // headline) and record that honestly as a fallback.
+    result = assemble(fallbackChoice(cluster, QUESTION_LABELS[qid]));
+    choiceSource = "fallback";
+    usedModel = null;
+  }
+  return { ...result, choiceSource, model: usedModel };
 }
 
 export async function saveView(
@@ -223,10 +302,11 @@ export async function saveView(
   articleCount: number,
   warnings: string[],
   model: string | null,
+  choiceSource: ChoiceSource,
 ): Promise<number> {
   const info = await env.DB.prepare(
-    "INSERT INTO generated_views (question_id, cluster_key, title, spec, article_count, verified, warnings, model, origin, created_at) " +
-      "VALUES (?,?,?,?,?,?,?,?,?,?)",
+    "INSERT INTO generated_views (question_id, cluster_key, title, spec, article_count, verified, warnings, model, origin, created_at, choice_source) " +
+      "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
   )
     .bind(
       qid,
@@ -239,6 +319,7 @@ export async function saveView(
       model,
       spec.origin,
       spec.generatedAt,
+      choiceSource,
     )
     .run();
   return Number(info.meta.last_row_id ?? 0);
@@ -309,9 +390,11 @@ export async function hotEvents(env: Env): Promise<HotEventsResult> {
 
 /** Build (and save) the view for one ranked event, identified by its
  *  cluster key within the same recent window hotEvents uses. The layout
- *  is the deterministic fallback (no model call); the verification gate
- *  still runs. Returns null when the cluster is no longer found (the
- *  pool moved on since the ranking was produced). */
+ *  is the deterministic rule-based choice (no model call): the event's
+ *  own shape — size, outlet breadth, time span, tone availability —
+ *  decides which sections appear and in which order. The verification
+ *  gate still runs. Returns null when the cluster is no longer found
+ *  (the pool moved on since the ranking was produced). */
 export async function buildEventView(
   env: Env,
   qid: QuestionId,
@@ -328,7 +411,7 @@ export async function buildEventView(
     generatedAt: new Date().toISOString(),
     origin: "chat",
     cluster,
-    choice: fallbackChoice(cluster, QUESTION_LABELS[qid]),
+    choice: ruleBasedChoice(cluster, trend, QUESTION_LABELS[qid]),
     trend,
     pool: {
       total: status?.total ?? 0,
@@ -340,6 +423,8 @@ export async function buildEventView(
   const warnings = verifyViewSpec(spec, {
     articleUrls: new Set(cluster.articles.map((a) => a.url)),
     articles: cluster.articles,
+    baseline: BASELINES[qid] ?? "",
+    existingProse: await recentViewProse(env, qid),
   });
   const viewId = await saveView(
     env,
@@ -349,6 +434,7 @@ export async function buildEventView(
     cluster.articles.length,
     warnings,
     null,
+    "rule",
   );
   return { viewId, spec, warnings };
 }
@@ -422,14 +508,12 @@ export async function runRadarCheck(env: Env): Promise<RadarCheckSummary> {
         );
         for (const cluster of clusters.slice(0, MAX_VIEWS_PER_QUESTION)) {
           try {
-            const { spec, warnings } = await generateViewForCluster(
-              env,
-              model,
-              qid,
-              cluster,
-              pool,
-              "cron",
-            );
+            const {
+              spec,
+              warnings,
+              choiceSource,
+              model: usedModel,
+            } = await generateViewForCluster(env, model, qid, cluster, pool, "cron");
             const id = await saveView(
               env,
               qid,
@@ -437,7 +521,8 @@ export async function runRadarCheck(env: Env): Promise<RadarCheckSummary> {
               spec,
               cluster.articles.length,
               warnings,
-              model,
+              usedModel,
+              choiceSource,
             );
             entry.views++;
             summary.newViews++;

@@ -10,6 +10,7 @@ import {
   buildEventView,
   estimateNeurons,
   hotEvents,
+  recentViewProse,
   recordNeurons,
   runRadarCheck,
   saveView,
@@ -22,10 +23,11 @@ import {
   isPlaceholderTitle,
   sanitizeGeneratedTitle,
 } from "./logic";
-import { fallbackChoice, materializeViewSpec, verifyViewSpec } from "./views";
+import { materializeViewSpec, ruleBasedChoice, verifyViewSpec } from "./views";
 import {
   QUESTION_IDS,
   QUESTION_LABELS,
+  mediaBreakdown,
   poolStatus,
   searchArticles,
   toneTrend,
@@ -38,6 +40,7 @@ const SYSTEM_PROMPT = `あなたは「一次情報レーダー探検UI」の案�
 - 事実の主張は必ずツールで取得した記事・見立てに基づいて行い、出典（媒体ドメインとURL）を添える。ツールで確認できないことは「プールにはまだ無い」と正直に言う。
 - 収集プールは現在バックフィル中で、frontier（最新の記事日時）が現在日時より大幅に遅れている問いがある。pool_status で鮮度を確認し、欠落や遅れがあれば最初に断る。プールに無い出来事を、起きていないかのように語らない。
 - get_baseline（現時点の見立て）と get_thread（記録）を読んでから、その問いの見立てについて語る。
+- 媒体（メディア）の内訳を聞かれたら media_breakdown を呼ぶ。プールの記事には媒体（ドメイン）が実在し、ドメイン別件数の集計が返るので、その数値で答える。「媒体の一覧は無い」などと言わない。
 - 問いの全体像を画面で見たいと明示的に言われたら build_view で画面（ダッシュボード）を生成して見せる。自分から進んで画面を生成しない。生成済みの画面は list_views で引ける。
 - 「いま何が注目されている？」「世界情勢の注目は？」のように漠然と聞かれたら hot_events を呼ぶ。返ってくる順位は報道量（記事件数）などでコードが決定的に付けたものなので、その順序を入れ替えずに紹介し、各出来事に問いのタグ・記事数・対象期間（poolLatest）を添える。ランキングの回答では出来事の提示だけに留めること。個別の出来事の画面はチャットからは生成できない（そのためのツールは無い）。利用者が特定の出来事の画面を見たがったら、出来事ごとに表示される「画面を見る」ボタンを押すよう案内する。例として1件だけ選んで画面を出すようなことは決してしない。
 - 回答は日本語で、結論から簡潔に。推測と事実を区別する。`;
@@ -102,6 +105,24 @@ function buildTools(env: Env) {
         } catch (err) {
           console.error("search_articles failed", err);
           return { error: "記事の検索に失敗しました。" };
+        }
+      },
+    }),
+    media_breakdown: tool({
+      description:
+        "問いのプールについて、媒体（ドメイン）別の記事件数・上位媒体・媒体の総種類数を返す。「どんな媒体が多い？」「どのメディアが報じている？」と聞かれたらこれを使う。",
+      inputSchema: z.object({
+        question_id: qidInput,
+        limit: limitInput,
+      }),
+      execute: async (args) => {
+        const qid = normalizeQid(args.question_id);
+        if (!qid) return { error: "問い（q1〜q6）を特定できませんでした。" };
+        try {
+          return await mediaBreakdown(env, qid, normalizeInt(args.limit, 15));
+        } catch (err) {
+          console.error("media_breakdown failed", err);
+          return { error: "媒体の内訳を取得できませんでした。" };
         }
       },
     }),
@@ -226,7 +247,10 @@ function buildTools(env: Env) {
             generatedAt: new Date().toISOString(),
             origin: "chat",
             cluster,
-            choice: fallbackChoice(cluster, QUESTION_LABELS[qid]),
+            // Rule-based layout (no model call): the composition follows
+            // the shape of the articles found — size, outlet breadth,
+            // time span, tone availability — not one fixed template.
+            choice: ruleBasedChoice(cluster, trend, QUESTION_LABELS[qid]),
             trend,
             pool: {
               total: status?.total ?? 0,
@@ -241,6 +265,8 @@ function buildTools(env: Env) {
           const warnings = verifyViewSpec(spec, {
             articleUrls: new Set(withFetched.map((a) => a.url)),
             articles: withFetched,
+            baseline: BASELINES[qid] ?? "",
+            existingProse: await recentViewProse(env, qid),
           });
           const viewId = await saveView(
             env,
@@ -250,6 +276,7 @@ function buildTools(env: Env) {
             withFetched.length,
             warnings,
             null,
+            "rule",
           );
           return { viewId, view: spec, warnings };
         } catch (err) {

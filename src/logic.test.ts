@@ -12,7 +12,9 @@ import {
   extractUrls,
   fallbackTitle,
   isPlaceholderTitle,
+  normalizeProseText,
   pickModelForUsage,
+  proseSimilarity,
   rankEvents,
   sanitizeGeneratedTitle,
   seendateToDate,
@@ -361,5 +363,37 @@ describe("chat model policy", () => {
     expect(MODEL_CHAT).toBe("@cf/mistralai/mistral-small-3.1-24b-instruct");
     expect(estimateNeurons(MODEL_CHAT, 1_000_000, 0)).toBeCloseTo(31909);
     expect(estimateNeurons(MODEL_CHAT, 0, 1_000_000)).toBeCloseTo(50455);
+  });
+});
+
+describe("prose similarity (duplicate detection)", () => {
+  it("scores identical text as 1, even with cosmetic differences", () => {
+    expect(proseSimilarity("AI一次情報の系譜", "AI一次情報の系譜")).toBe(1);
+    expect(proseSimilarity("AI 一次情報の系譜。", "AI一次情報の系譜")).toBe(1);
+  });
+
+  it("scores unrelated text near 0", () => {
+    const sim = proseSimilarity(
+      "半導体輸出規制を巡る新展開が報じられた",
+      "プロ野球の優勝が決まった夜の話題",
+    );
+    expect(sim).toBeLessThan(0.3);
+  });
+
+  it("scores a near-copy (one phrase changed) high", () => {
+    const sim = proseSimilarity(
+      "この出来事は同じ出来事を報じた記事の集まりであり、内訳は下の部品のとおりです",
+      "この出来事は同じ出来事を報じた記事の集まりであり、内訳は下の部品のとおりでした",
+    );
+    expect(sim).toBeGreaterThan(0.75);
+  });
+
+  it("handles empty input as 0", () => {
+    expect(proseSimilarity("", "何か")).toBe(0);
+    expect(proseSimilarity("何か", "")).toBe(0);
+  });
+
+  it("normalises case, whitespace and punctuation away", () => {
+    expect(normalizeProseText("Hello, World! テスト。")).toBe("helloworldテスト");
   });
 });
