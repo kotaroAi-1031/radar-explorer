@@ -76,3 +76,42 @@ GITHUB_REPO="kotaroAi-1031/<new-repo>" pnpm run apply
 - Keep the baseline loose. Extra rules (required reviews, status
   checks) are added per repository when they earn their keep — not
   here, where they would tax every repo created from this template.
+
+---
+
+# radar-explorer — 一次情報レーダー探検UI
+
+一次情報レーダーの収集プール（GDELT、Turso 上の問い別DB q1〜q6）を、
+出典つきの部品（Generative UI）で探索するための単一 Cloudflare Worker。
+設計書は `~/workspace/radar/explorer/DESIGN.md`（v2、スタック確定済み）。
+
+- 本番URL: https://radar-explorer.tanoshimi494.workers.dev
+- 構成: Workers Assets（React SPA）+ `ExplorerAgent`（AIChatAgent Durable
+  Object）+ ステートレス MCP（`/mcp`、`createMcpHandler`）+ 15分おきの
+  Cron。モデルは Workers AI バインディング直結（`createAI({ binding })`）。
+- データ: 収集プール（Turso）は読み取り専用。自分の D1 `radar-explorer`
+  に下書き（drafts）・差分検知の状態（state）・neurons 日次カウンタを置く。
+- 自動生成: Cron が差分（fetched_at ベース）を検知し、閾値10件以上または
+  frontier 前進で決定的クラスタリング → Llama 3.3 70B で threads 形式の
+  下書きを生成 → 検証ゲート（出典URLの実在・数値の出現）→ D1 に
+  status=pending で保存し、接続中の画面へ broadcast する。neurons ガード:
+  6,000 で 8B へ降格、8,000 で自動生成停止。
+- MCP ツール: `pool_status` / `search_articles` / `tone_trend` /
+  `get_baseline` / `get_thread`（全て読み取り専用）。
+- baselines / threads の同梱コピーは `src/content.generated.ts`
+  （`node scripts/sync-content.mjs` で再生成。正は `~/workspace/radar/`）。
+
+## 開発・デプロイ
+
+```bash
+pnpm install
+pnpm run typecheck
+node_modules/.bin/cf build
+# secret はファイル経由でのみ渡す（値はリポジトリに置かない）
+node_modules/.bin/cf deploy --secrets-file <secrets.json>
+# D1 マイグレーション
+node_modules/.bin/cf d1 migrations apply <database-id>
+```
+
+認証は Cloudflare Access（本人のみ許可）を前面に置く前提。Access が
+未設定の間は「未公開の検証段階」として扱うこと。

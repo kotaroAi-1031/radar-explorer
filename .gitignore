@@ -24,3 +24,6 @@ dist/
 
 # Alchemy local state (infra/)
 .alchemy/
+
+# cf CLI build output and generated types
+.cloudflare/

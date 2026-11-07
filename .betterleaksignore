@@ -1,0 +1,5 @@
+src/content.generated.ts:xai-api-key:15
+# False positive: the fingerprint above is a businesstoday.in article URL
+# slug ("xai-...") inside the bundled radar threads snapshot
+# (threads/q4-tech-power.md), not a credential. The generated file is a
+# verbatim copy of ~/workspace/radar/{baselines,threads}.
