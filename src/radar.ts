@@ -150,6 +150,62 @@ export async function recentArticles(
   }));
 }
 
+export interface MediaBreakdownEntry {
+  domain: string;
+  count: number;
+  /** Share of the question's pool, 0..1. */
+  share: number;
+}
+
+export interface MediaBreakdown {
+  questionId: QuestionId;
+  /** Total articles in the question's pool. */
+  total: number;
+  /** Distinct outlets (domains) in the pool. */
+  domainCount: number;
+  /** Outlets with the most articles, most frequent first. */
+  top: MediaBreakdownEntry[];
+}
+
+/** Per-outlet (domain) article counts for one question's pool. The pool
+ *  rows carry the outlet in `domain`; event views already build source
+ *  lists from it, and this aggregates the same field pool-wide so chat
+ *  can answer "which outlets cover this most?" with real numbers. */
+export async function mediaBreakdown(
+  env: Env,
+  questionId: QuestionId,
+  limit = 15,
+): Promise<MediaBreakdown> {
+  const db = tursoClient(env, questionId);
+  const capped = Math.min(Math.max(limit, 1), 50);
+  const [agg, top] = await Promise.all([
+    db.execute({
+      sql: "SELECT COUNT(*) AS total, COUNT(DISTINCT domain) AS domains FROM articles WHERE question_id = ?",
+      args: [questionId],
+    }),
+    db.execute({
+      sql:
+        "SELECT domain, COUNT(*) AS c FROM articles WHERE question_id = ? AND domain IS NOT NULL " +
+        "GROUP BY domain ORDER BY c DESC, domain ASC LIMIT ?",
+      args: [questionId, capped],
+    }),
+  ]);
+  const total = Number(agg.rows[0]?.total ?? 0);
+  return {
+    questionId,
+    total,
+    domainCount: Number(agg.rows[0]?.domains ?? 0),
+    top: top.rows.map((r) => {
+      const count = Number(r.c);
+      return {
+        domain: String(r.domain),
+        count,
+        share: total > 0 ? count / total : 0,
+      };
+    }),
+  };
+}
+
 export async function toneTrend(
   env: Env,
   questionId: QuestionId,
