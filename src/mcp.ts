@@ -3,13 +3,7 @@ import { createMcpHandler } from "agents/mcp/server";
 import { z } from "zod";
 import type { Env } from "./env";
 import { BASELINES, THREADS } from "./content.generated";
-import {
-  QUESTION_IDS,
-  poolStatus,
-  searchArticles,
-  toneTrend,
-  type QuestionId,
-} from "./radar";
+import { QUESTION_IDS, poolStatus, searchArticles, toneTrend, type QuestionId } from "./radar";
 
 const questionIdSchema = z.enum(QUESTION_IDS);
 
@@ -72,11 +66,7 @@ export function buildMcpServer(env: Env): McpServer {
     },
     async (args) =>
       textResult({
-        trend: await toneTrend(
-          env,
-          args.question_id as QuestionId,
-          args.days ?? 30,
-        ),
+        trend: await toneTrend(env, args.question_id as QuestionId, args.days ?? 30),
       }),
   );
 
@@ -102,6 +92,48 @@ export function buildMcpServer(env: Env): McpServer {
       return textResult({
         thread: full.length > 8000 ? "…（前略）\n" + full.slice(-8000) : full,
         truncated: full.length > 8000,
+      });
+    },
+  );
+
+  server.registerTool(
+    "list_views",
+    {
+      description: "自動生成された画面（Generative UI スペック）の一覧を返す。新しい順、最大20件。",
+      inputSchema: z.object({
+        question_id: questionIdSchema.optional(),
+      }),
+    },
+    async (args) => {
+      const rs = args.question_id
+        ? await env.DB.prepare(
+            "SELECT id, question_id, title, article_count, verified, origin, created_at FROM generated_views WHERE question_id = ? ORDER BY id DESC LIMIT 20",
+          )
+            .bind(args.question_id)
+            .all()
+        : await env.DB.prepare(
+            "SELECT id, question_id, title, article_count, verified, origin, created_at FROM generated_views ORDER BY id DESC LIMIT 20",
+          ).all();
+      return textResult({ views: rs.results });
+    },
+  );
+
+  server.registerTool(
+    "get_view",
+    {
+      description:
+        "生成済み画面のスペック（部品とデータのJSON）を1件返す。描画はクライアント側の決定的コンポーネントが行う。",
+      inputSchema: z.object({ id: z.number().int() }),
+    },
+    async (args) => {
+      const row = await env.DB.prepare(
+        "SELECT id, question_id, title, spec, article_count, verified, warnings, origin, created_at FROM generated_views WHERE id = ?",
+      )
+        .bind(args.id)
+        .first();
+      if (!row) return textResult({ error: "view not found" });
+      return textResult({
+        view: { ...row, spec: JSON.parse(String(row.spec)) },
       });
     },
   );

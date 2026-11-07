@@ -1,10 +1,4 @@
-import {
-  bindings,
-  defineConfig,
-  defineWorker,
-  exports,
-  triggers,
-} from "cf/config";
+import { bindings, defineConfig, defineWorker, exports, triggers } from "cf/config";
 import * as entrypoint from "./src/index.ts" with { type: "cf-worker" };
 
 // Single Worker: static assets (React SPA) + the ExplorerAgent Durable
