@@ -22,14 +22,17 @@ import {
   clusterArticles,
   estimateNeurons,
   pickModelForUsage,
+  rankEvents,
   shouldTrigger,
   type Cluster,
+  type RankedEventCandidate,
 } from "./logic";
 import {
   QUESTION_IDS,
   QUESTION_LABELS,
   newArticlesSince,
   poolStatus,
+  recentArticles,
   toneTrend,
   type PoolStatusEntry,
   type QuestionId,
@@ -239,6 +242,115 @@ export async function saveView(
     )
     .run();
   return Number(info.meta.last_row_id ?? 0);
+}
+
+// ---------------------------------------------------------------------------
+// Attention ranking: "what is the world paying attention to"
+// ---------------------------------------------------------------------------
+
+/** The recent window every event-clustering call shares, so a cluster key
+ *  produced by hotEvents resolves to the same cluster in buildEventView. */
+export const HOT_WINDOW = 150;
+const HOT_MIN_CLUSTER = 2;
+const HOT_TOP_N = 12;
+
+export interface HotEvent extends RankedEventCandidate {
+  questionLabel: string;
+}
+
+export interface HotEventsResult {
+  events: HotEvent[];
+  /** Newest frontier across all pools (ISO string): the honest "as of"
+   *  of the ranking. The pool is backfilling, so this can lag real time
+   *  by a lot — callers must show it rather than imply "right now". */
+  poolLatest: string | null;
+  generatedAt: string;
+}
+
+/** Ranked events across all six questions. The order comes from
+ *  rankEvents (deterministic: coverage volume, then outlet breadth, then
+ *  freshness); this function only assembles the candidates from real
+ *  pool data. Used when the user asks what is getting attention — never
+ *  rendered before being asked. */
+export async function hotEvents(env: Env): Promise<HotEventsResult> {
+  const status = await poolStatus(env);
+  const poolLatest = status.reduce<string | null>(
+    (acc, s) => (s.frontierIso && (acc === null || s.frontierIso > acc) ? s.frontierIso : acc),
+    null,
+  );
+  const candidates: HotEvent[] = [];
+  for (const qid of QUESTION_IDS) {
+    const articles = await recentArticles(env, qid, HOT_WINDOW).catch(() => [] as Article[]);
+    const withFetched = articles.map((a) => ({ ...a, fetchedAt: a.seendate ?? "" }));
+    for (const cluster of clusterArticles(withFetched)) {
+      if (cluster.articles.length < HOT_MIN_CLUSTER) continue;
+      const domains = new Set(cluster.articles.map((a) => a.domain ?? "(unknown)"));
+      const latest = cluster.articles.reduce<string | null>(
+        (acc, a) => (a.seendate && (acc === null || a.seendate > acc) ? a.seendate : acc),
+        null,
+      );
+      candidates.push({
+        questionId: qid,
+        questionLabel: QUESTION_LABELS[qid],
+        clusterKey: cluster.key,
+        title: cluster.articles[0]?.title ?? null,
+        articleCount: cluster.articles.length,
+        domainCount: domains.size,
+        latestSeendate: latest,
+      });
+    }
+  }
+  return {
+    events: rankEvents(candidates).slice(0, HOT_TOP_N),
+    poolLatest,
+    generatedAt: new Date().toISOString(),
+  };
+}
+
+/** Build (and save) the view for one ranked event, identified by its
+ *  cluster key within the same recent window hotEvents uses. The layout
+ *  is the deterministic fallback (no model call); the verification gate
+ *  still runs. Returns null when the cluster is no longer found (the
+ *  pool moved on since the ranking was produced). */
+export async function buildEventView(
+  env: Env,
+  qid: QuestionId,
+  clusterKey: string,
+): Promise<{ viewId: number; spec: ViewSpec; warnings: string[] } | null> {
+  const status = (await poolStatus(env)).find((p) => p.questionId === qid);
+  const articles = await recentArticles(env, qid, HOT_WINDOW);
+  const withFetched = articles.map((a) => ({ ...a, fetchedAt: a.seendate ?? "" }));
+  const cluster = clusterArticles(withFetched).find((c) => c.key === clusterKey);
+  if (!cluster) return null;
+  const trend = await toneTrend(env, qid, 30).catch(() => []);
+  const spec = materializeViewSpec({
+    questionId: qid,
+    generatedAt: new Date().toISOString(),
+    origin: "chat",
+    cluster,
+    choice: fallbackChoice(cluster, QUESTION_LABELS[qid]),
+    trend,
+    pool: {
+      total: status?.total ?? 0,
+      frontier: status?.frontier ?? null,
+      recent24h: status?.recent24h ?? 0,
+    },
+    baseline: BASELINES[qid] ?? "",
+  });
+  const warnings = verifyViewSpec(spec, {
+    articleUrls: new Set(cluster.articles.map((a) => a.url)),
+    articles: cluster.articles,
+  });
+  const viewId = await saveView(
+    env,
+    qid,
+    cluster.key,
+    spec,
+    cluster.articles.length,
+    warnings,
+    null,
+  );
+  return { viewId, spec, warnings };
 }
 
 // ---------------------------------------------------------------------------

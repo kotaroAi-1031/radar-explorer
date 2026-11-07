@@ -163,6 +163,43 @@ export function clusterArticles<T extends ClusterableArticle>(articles: T[]): Cl
 }
 
 // ---------------------------------------------------------------------------
+// Deterministic event ranking ("what is the world paying attention to")
+// ---------------------------------------------------------------------------
+
+/** One candidate event for the attention ranking: a cluster of articles
+ *  about the same happening, reduced to the signals the ranking uses. */
+export interface RankedEventCandidate {
+  questionId: string;
+  clusterKey: string;
+  /** Representative headline (the cluster's newest article title). */
+  title: string | null;
+  /** Coverage volume: how many articles report this event. The proxy for
+   *  how heavily world media are treating it. */
+  articleCount: number;
+  /** How many distinct outlets carried it — breadth of attention. */
+  domainCount: number;
+  /** Newest article date in the cluster (GDELT seendate), null if none. */
+  latestSeendate: string | null;
+}
+
+/** Attention ranking, fully deterministic — the LLM never reorders it.
+ *  Primary key is coverage volume (article count, descending). Ties fall
+ *  to breadth (distinct outlets), then freshness (newest article date),
+ *  then question id and cluster key, so the same pool always produces
+ *  the same order. Returns a new array; the input is not mutated. */
+export function rankEvents<T extends RankedEventCandidate>(events: readonly T[]): T[] {
+  return [...events].sort((a, b) => {
+    if (b.articleCount !== a.articleCount) return b.articleCount - a.articleCount;
+    if (b.domainCount !== a.domainCount) return b.domainCount - a.domainCount;
+    const byFreshness = (b.latestSeendate ?? "").localeCompare(a.latestSeendate ?? "");
+    if (byFreshness !== 0) return byFreshness;
+    const byQuestion = a.questionId.localeCompare(b.questionId);
+    if (byQuestion !== 0) return byQuestion;
+    return a.clusterKey.localeCompare(b.clusterKey);
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Verification gate helpers
 // ---------------------------------------------------------------------------
 

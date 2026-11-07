@@ -303,24 +303,14 @@ describe("view generation: mutation strengthening", () => {
       ...article("https://x.example/2", "Two", "x.example", "20260815T010000Z"),
       domain: null,
     };
-    const spec = materialize(
-      [a1, a2],
-      choice({ sections: [{ type: "source_list" }] }),
-    );
+    const spec = materialize([a1, a2], choice({ sections: [{ type: "source_list" }] }));
     const section = spec.sections.find((s) => s.type === "source_list");
-    expect(
-      section && "sources" in section && section.sources[0]?.domain,
-    ).toBe("(unknown)");
+    expect(section && "sources" in section && section.sources[0]?.domain).toBe("(unknown)");
   });
 
   it("gate rejects numbers that appear in a section heading but not in inputs", () => {
     const arts = [
-      article(
-        "https://a.example/1",
-        "市長が会見を開いた",
-        "a.example",
-        "20260815T000000Z",
-      ),
+      article("https://a.example/1", "市長が会見を開いた", "a.example", "20260815T000000Z"),
     ];
     const spec = materialize(arts, choice({ sections: [{ type: "summary" }] }));
     const bad = {
@@ -334,18 +324,8 @@ describe("view generation: mutation strengthening", () => {
   });
 
   it("gate rejects a source_list whose sampleUrl is not from the inputs", () => {
-    const arts = [
-      article(
-        "https://a.example/1",
-        "通常の記事",
-        "a.example",
-        "20260815T000000Z",
-      ),
-    ];
-    const spec = materialize(
-      arts,
-      choice({ sections: [{ type: "source_list" }] }),
-    );
+    const arts = [article("https://a.example/1", "通常の記事", "a.example", "20260815T000000Z")];
+    const spec = materialize(arts, choice({ sections: [{ type: "source_list" }] }));
     const bad = {
       ...spec,
       sections: spec.sections.map((s) =>

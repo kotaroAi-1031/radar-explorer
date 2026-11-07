@@ -1,12 +1,14 @@
 import { AIChatAgent } from "@cloudflare/ai-chat";
-import { convertToModelMessages, stepCountIs, streamText, tool } from "ai";
+import { convertToModelMessages, stepCountIs, streamText, tool, type UIMessage } from "ai";
 import { createAI } from "agents/models/ai-sdk";
 import { z } from "zod";
 import type { Env } from "./env";
 import { BASELINES, THREADS } from "./content.generated";
 import {
   MODEL_CHAT,
+  buildEventView,
   estimateNeurons,
+  hotEvents,
   recordNeurons,
   runRadarCheck,
   saveView,
@@ -30,6 +32,7 @@ const SYSTEM_PROMPT = `あなたは「一次情報レーダー探検UI」の案�
 - 収集プールは現在バックフィル中で、frontier（最新の記事日時）が現在日時より大幅に遅れている問いがある。pool_status で鮮度を確認し、欠落や遅れがあれば最初に断る。プールに無い出来事を、起きていないかのように語らない。
 - get_baseline（現時点の見立て）と get_thread（記録）を読んでから、その問いの見立てについて語る。
 - 問いの全体像や出来事の画面が欲しいと言われたら build_view で画面（ダッシュボード）を生成して見せる。生成済みの画面は list_views で引ける。
+- 「いま何が注目されている？」「世界情勢の注目は？」のように漠然と聞かれたら hot_events を呼ぶ。返ってくる順位は報道量（記事件数）などでコードが決定的に付けたものなので、その順序を入れ替えずに紹介し、各出来事に問いのタグ・記事数・対象期間（poolLatest）を添える。特定の出来事の画面を求められたら show_event（cluster_key は hot_events の返り値のものを使う）でその出来事の画面を出す。
 - 回答は日本語で、結論から簡潔に。推測と事実を区別する。`;
 
 // Tools never throw: an empty pool is a normal empty result, and any
@@ -162,6 +165,39 @@ function buildTools(env: Env) {
         }
       },
     }),
+    hot_events: tool({
+      description:
+        "いま（収集プールの範囲で）世界のメディアで注目されている出来事を、注目度順に返す。順位は報道量（同じ出来事の記事件数）→媒体数→新しさでコードが決定的に付けたもので、入れ替えてはいけない。各出来事に cluster_key が付く。漠然と『何が注目されてる？』と聞かれたときに使う。",
+      inputSchema: z.object({}),
+      execute: async () => {
+        try {
+          return await hotEvents(env);
+        } catch (err) {
+          console.error("hot_events failed", err);
+          return { error: "注目の出来事を取得できませんでした。" };
+        }
+      },
+    }),
+    show_event: tool({
+      description:
+        "hot_events が返した出来事（cluster_key で指定）の画面をその場で生成して返す。記事カード・時系列・出典・見立てパネルを含む。",
+      inputSchema: z.object({
+        question_id: qidInput,
+        cluster_key: z.string(),
+      }),
+      execute: async (args) => {
+        const qid = normalizeQid(args.question_id);
+        if (!qid) return { error: "問い（q1〜q6）を特定できませんでした。" };
+        try {
+          const built = await buildEventView(env, qid, args.cluster_key);
+          if (!built) return { error: "その出来事はプールの更新で見つからなくなりました。" };
+          return { viewId: built.viewId, view: built.spec, warnings: built.warnings };
+        } catch (err) {
+          console.error("show_event failed", err);
+          return { error: "画面の生成に失敗しました。" };
+        }
+      },
+    }),
     build_view: tool({
       description:
         "指定した問いの画面（ダッシュボード）をその場で生成する。プールの最新記事から部品（統計・記事カード・時系列・トーングラフ・媒体一覧・見立てパネル）を組み立て、生成済み画面として保存もする。全体像を見たいとき、出来事を画面で見たいときに使う。",
@@ -231,7 +267,88 @@ function buildTools(env: Env) {
 }
 
 export class ExplorerAgent extends AIChatAgent<Env> {
+  /** Keep the D1 thread index (sidebar) in step with this conversation:
+   *  bump updated_at on every turn, and take the title from the first
+   *  user message while the thread is still unnamed. Bookkeeping only —
+   *  a failure here must never break the chat itself. */
+  private async touchThreadRecord(): Promise<void> {
+    try {
+      const id = this.name;
+      if (!id) return;
+      const now = new Date().toISOString();
+      await this.env.DB.prepare(
+        "INSERT INTO threads (id, title, created_at, updated_at) VALUES (?,?,?,?) " +
+          "ON CONFLICT(id) DO UPDATE SET updated_at = excluded.updated_at",
+      )
+        .bind(id, "新しいスレッド", now, now)
+        .run();
+      const userMessages = this.messages.filter((m) => m.role === "user");
+      if (userMessages.length === 1) {
+        const text = userMessages[0].parts
+          .filter((p) => p.type === "text")
+          .map((p) => (p as { text?: string }).text ?? "")
+          .join("")
+          .trim();
+        if (text) {
+          await this.env.DB.prepare(
+            "UPDATE threads SET title = ? WHERE id = ? AND title = '新しいスレッド'",
+          )
+            .bind([...text].slice(0, 40).join(""), id)
+            .run();
+        }
+      }
+    } catch (err) {
+      console.error("thread record update failed", err);
+    }
+  }
+
+  /** RPC entry for POST /api/threads/:id/event-view: generate one ranked
+   *  event's view and append it to this thread as a message pair, so the
+   *  screen appears inside the conversation and survives reloads. */
+  async appendEventView(
+    questionIdRaw: unknown,
+    clusterKeyRaw: unknown,
+  ): Promise<{ viewId: number } | { error: string }> {
+    const qid = normalizeQid(questionIdRaw);
+    if (!qid || typeof clusterKeyRaw !== "string" || !clusterKeyRaw) {
+      return { error: "出来事を特定できませんでした。" };
+    }
+    let built: Awaited<ReturnType<typeof buildEventView>>;
+    try {
+      built = await buildEventView(this.env, qid, clusterKeyRaw);
+    } catch (err) {
+      console.error("appendEventView failed", err);
+      return { error: "画面の生成に失敗しました。" };
+    }
+    if (!built) {
+      return { error: "その出来事はプールの更新で見つからなくなりました。" };
+    }
+    const userMessage = {
+      id: crypto.randomUUID(),
+      role: "user",
+      parts: [{ type: "text", text: `「${built.spec.title}」の画面を見せて` }],
+    } as UIMessage;
+    const assistantMessage = {
+      id: crypto.randomUUID(),
+      role: "assistant",
+      parts: [
+        { type: "text", text: `「${built.spec.title}」の画面です。` },
+        {
+          type: "tool-show_event",
+          toolCallId: crypto.randomUUID(),
+          state: "output-available",
+          input: { question_id: qid, cluster_key: clusterKeyRaw },
+          output: { viewId: built.viewId, view: built.spec, warnings: built.warnings },
+        },
+      ],
+    } as UIMessage;
+    await this.persistMessages([...this.messages, userMessage, assistantMessage]);
+    await this.touchThreadRecord();
+    return { viewId: built.viewId };
+  }
+
   async onChatMessage(onFinish: Parameters<AIChatAgent<Env>["onChatMessage"]>[0]) {
+    await this.touchThreadRecord();
     const ai = createAI({ binding: this.env.AI });
     const result = streamText({
       model: ai(MODEL_CHAT),
