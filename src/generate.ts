@@ -1,6 +1,6 @@
 // Event-driven view generation.
 //
-// Every 15 minutes (cron) — and on demand via /api/check-now — this module
+// Every hour (cron) — and on demand via /api/check-now — this module
 // diffs the collector pools against the per-question state kept in D1.
 // When a question gained enough new articles or its frontier advanced,
 // the new articles are clustered deterministically; each flagged cluster

@@ -2,7 +2,7 @@ import { bindings, defineConfig, defineWorker, exports, triggers } from "cf/conf
 import * as entrypoint from "./src/index.ts" with { type: "cf-worker" };
 
 // Single Worker: static assets (React SPA) + the ExplorerAgent Durable
-// Object + the stateless MCP endpoint + a 15-minute cron that watches the
+// Object + the stateless MCP endpoint + an hourly cron that watches the
 // collector databases for new arrivals and drafts thread entries.
 // Storage: the radar data itself lives in Turso (read-only here); this
 // Worker's own D1 holds drafts, diff-detection state and the neurons
@@ -15,7 +15,7 @@ const worker = defineWorker({
     notFoundHandling: "single-page-application",
     runWorkerFirst: ["/agents/*", "/mcp", "/mcp/*", "/api/*"],
   },
-  triggers: [triggers.scheduled({ schedule: "*/15 * * * *" })],
+  triggers: [triggers.scheduled({ schedule: "0 * * * *" })],
   env: {
     AI: bindings.ai(),
     DB: bindings.d1({ name: "radar-explorer" }),
