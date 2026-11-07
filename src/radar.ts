@@ -1,5 +1,10 @@
 import { createClient, type Client } from "@libsql/client/web";
 import type { Env } from "./env";
+import { dateToSeendate, seendateToDate } from "./logic";
+import type { Article, ToneTrendPoint } from "./radar-types";
+
+export { dateToSeendate, seendateToDate };
+export type { Article, ToneTrendPoint };
 
 export const QUESTION_IDS = ["q1", "q2", "q3", "q4", "q5", "q6"] as const;
 export type QuestionId = (typeof QUESTION_IDS)[number];
@@ -21,10 +26,7 @@ interface TursoEntry {
 const clientCache = new Map<string, Client>();
 
 export function tursoClient(env: Env, qid: QuestionId): Client {
-  const all = JSON.parse(env.TURSO_DATABASES_JSON) as Record<
-    string,
-    TursoEntry
-  >;
+  const all = JSON.parse(env.TURSO_DATABASES_JSON) as Record<string, TursoEntry>;
   const entry = all[qid];
   if (!entry) throw new Error(`no Turso database configured for ${qid}`);
   let client = clientCache.get(entry.url);
@@ -33,32 +35,6 @@ export function tursoClient(env: Env, qid: QuestionId): Client {
     clientCache.set(entry.url, client);
   }
   return client;
-}
-
-export interface Article {
-  url: string;
-  title: string | null;
-  domain: string | null;
-  language: string | null;
-  sourceCountry: string | null;
-  seendate: string | null;
-  tone: number | null;
-}
-
-/** GDELT seendate ("20260815T120000Z") → Date. Returns null when unparsable. */
-export function seendateToDate(s: string | null): Date | null {
-  if (!s) return null;
-  const m = s.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/);
-  if (!m) return null;
-  return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]));
-}
-
-export function dateToSeendate(d: Date): string {
-  const p = (n: number, w = 2) => String(n).padStart(w, "0");
-  return (
-    `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}` +
-    `T${p(d.getUTCHours())}${p(d.getUTCMinutes())}${p(d.getUTCSeconds())}Z`
-  );
 }
 
 export interface PoolStatusEntry {
@@ -84,9 +60,7 @@ export async function poolStatus(env: Env): Promise<PoolStatusEntry[]> {
     let recent24h = 0;
     const frontierDate = seendateToDate(frontier);
     if (frontierDate) {
-      const since = dateToSeendate(
-        new Date(frontierDate.getTime() - 24 * 3600 * 1000),
-      );
+      const since = dateToSeendate(new Date(frontierDate.getTime() - 24 * 3600 * 1000));
       const r = await db.execute({
         sql: "SELECT COUNT(*) AS c FROM articles WHERE seendate >= ?",
         args: [since],
@@ -115,10 +89,7 @@ export interface SearchOptions {
   limit?: number;
 }
 
-export async function searchArticles(
-  env: Env,
-  opts: SearchOptions,
-): Promise<Article[]> {
+export async function searchArticles(env: Env, opts: SearchOptions): Promise<Article[]> {
   const db = tursoClient(env, opts.questionId);
   const limit = Math.min(Math.max(opts.limit ?? 20, 1), 50);
   const clauses = ["question_id = ?"];
@@ -151,12 +122,6 @@ export async function searchArticles(
     seendate: (r.seendate as string | null) ?? null,
     tone: r.tone === null ? null : Number(r.tone),
   }));
-}
-
-export interface ToneTrendPoint {
-  day: string; // YYYYMMDD
-  count: number;
-  avgTone: number | null;
 }
 
 export async function toneTrend(
