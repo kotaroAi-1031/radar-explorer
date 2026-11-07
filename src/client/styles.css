@@ -1,0 +1,406 @@
+:root {
+  --bg: #0d1117;
+  --panel: #151b24;
+  --card: #1a2230;
+  --border: #2a3648;
+  --text: #e6edf3;
+  --muted: #8b98a9;
+  --accent: #4cc2ff;
+  --accent2: #7ee0a3;
+  --warn: #ffb454;
+  --danger: #ff7b72;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family:
+    "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Noto Sans JP", system-ui,
+    sans-serif;
+  line-height: 1.6;
+}
+
+.app {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+header h1 {
+  font-size: 1.5rem;
+  margin: 8px 0 4px;
+}
+
+.sub {
+  color: var(--muted);
+  margin: 0 0 8px;
+  font-size: 0.9rem;
+}
+
+.header-nums {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+button {
+  background: var(--card);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 14px;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    transform 0.15s ease;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.notice {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: color-mix(in srgb, var(--accent2) 16%, var(--panel));
+  border: 1px solid var(--accent2);
+  border-radius: 10px;
+  padding: 8px 14px;
+  margin: 12px 0;
+  animation: rise 0.25s ease;
+}
+
+main {
+  display: grid;
+  grid-template-columns: minmax(340px, 5fr) minmax(380px, 7fr);
+  gap: 16px;
+  margin-top: 12px;
+}
+
+@media (max-width: 900px) {
+  main {
+    grid-template-columns: 1fr;
+  }
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px;
+  min-width: 0;
+}
+
+.panel h2 {
+  font-size: 1.05rem;
+  margin: 4px 0 12px;
+}
+
+.board {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.board-row {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--card);
+  animation: rise 0.25s ease;
+}
+
+.board-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.qid {
+  font-weight: 700;
+  color: var(--accent);
+  font-size: 0.85rem;
+  letter-spacing: 0.04em;
+}
+
+.badge {
+  font-size: 0.72rem;
+  border: 1px solid var(--accent2);
+  color: var(--accent2);
+  border-radius: 999px;
+  padding: 0 8px;
+}
+
+.badge-missing {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.badge-warn {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+.board-label {
+  font-size: 0.9rem;
+  margin: 2px 0;
+}
+
+.board-nums {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--card);
+  animation: rise 0.25s ease;
+}
+
+.card a {
+  color: var(--accent);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.card a:hover {
+  text-decoration: underline;
+}
+
+.card h4 {
+  margin: 6px 0;
+  font-size: 1rem;
+}
+
+.card p {
+  margin: 6px 0;
+  font-size: 0.92rem;
+}
+
+.card-meta {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 0.76rem;
+  color: var(--muted);
+  align-items: center;
+}
+
+.impact {
+  color: var(--muted);
+}
+
+.sources {
+  margin: 6px 0;
+  padding-left: 18px;
+  font-size: 0.8rem;
+}
+
+.warnings {
+  margin: 6px 0;
+  padding-left: 18px;
+  color: var(--warn);
+  font-size: 0.82rem;
+}
+
+.empty {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.chart {
+  margin: 4px 0;
+}
+
+.chart svg {
+  width: 100%;
+  height: auto;
+}
+
+.chart-bar {
+  fill: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.chart-line {
+  fill: none;
+  stroke: var(--warn);
+  stroke-width: 2;
+}
+
+.chart-zero {
+  stroke: var(--border);
+  stroke-dasharray: 3 4;
+}
+
+.chart figcaption {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.chat .messages {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-height: 62vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.msg {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  animation: rise 0.25s ease;
+}
+
+.msg.user {
+  background: color-mix(in srgb, var(--accent) 10%, var(--card));
+  margin-left: 8%;
+}
+
+.msg.assistant {
+  background: var(--card);
+  margin-right: 4%;
+}
+
+.msg-role {
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.msg-text {
+  margin: 6px 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.toolpart {
+  margin: 8px 0;
+}
+
+.step {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.step-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex: none;
+}
+
+.step-dot.running {
+  background: var(--warn);
+  animation: pulse 1s ease-in-out infinite;
+}
+
+.step-dot.done {
+  background: var(--accent2);
+}
+
+.step-dot.error {
+  background: var(--danger);
+}
+
+.tool-output {
+  margin-top: 8px;
+}
+
+.tool-output pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 0.8rem;
+  max-height: 320px;
+  overflow-y: auto;
+  background: var(--bg);
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.hint {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.chat form {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.chat textarea {
+  flex: 1;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px;
+  font: inherit;
+  resize: vertical;
+}
+
+.chat textarea:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
