@@ -28,18 +28,26 @@ export default {
     }
 
     if (url.pathname === "/api/status") {
-      const [questions, neurons] = await Promise.all([
-        poolStatus(env),
-        neuronsUsedToday(env),
-      ]);
+      const [questions, neurons] = await Promise.all([poolStatus(env), neuronsUsedToday(env)]);
       return json({ questions, neuronsUsedToday: neurons });
     }
 
-    if (url.pathname === "/api/drafts") {
+    if (url.pathname === "/api/views") {
       const rs = await env.DB.prepare(
-        "SELECT id, question_id, headline, body, article_count, verified, warnings, status, model, created_at FROM drafts ORDER BY id DESC LIMIT 50",
+        "SELECT id, question_id, title, spec, article_count, verified, warnings, origin, created_at FROM generated_views ORDER BY id DESC LIMIT 20",
       ).all();
-      return json({ drafts: rs.results });
+      const views = rs.results.map((r) => ({
+        id: r.id,
+        question_id: r.question_id,
+        title: r.title,
+        spec: JSON.parse(String(r.spec)),
+        article_count: r.article_count,
+        verified: r.verified,
+        warnings: r.warnings,
+        origin: r.origin,
+        created_at: r.created_at,
+      }));
+      return json({ views });
     }
 
     if (url.pathname === "/api/check-now" && request.method === "POST") {
@@ -61,9 +69,7 @@ export default {
       stub
         .runRadarCheck()
         .then((s) => {
-          console.log(
-            `radar check: drafts=${s.newDrafts} neuronsToday=${s.neuronsUsedToday}`,
-          );
+          console.log(`radar check: views=${s.newViews} neuronsToday=${s.neuronsUsedToday}`);
         })
         .catch((err) => {
           console.error("radar check failed", err);

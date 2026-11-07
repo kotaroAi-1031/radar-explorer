@@ -1,33 +1,51 @@
+// Event-driven view generation.
+//
+// Every 15 minutes (cron) — and on demand via /api/check-now — this module
+// diffs the collector pools against the per-question state kept in D1.
+// When a question gained enough new articles or its frontier advanced,
+// the new articles are clustered deterministically; each flagged cluster
+// becomes a generated view (Generative UI spec, see views.ts): the model
+// picks the layout and writes the prose, code fills in all data, the
+// verification gate checks the result, and the spec is stored in D1's
+// generated_views table. The agent broadcasts the arrival so connected
+// screens can render the new view immediately.
+//
+// The daily neurons guard keeps the free tier safe: at 6,000 neurons the
+// generator falls back from the main model (Llama 4 Scout) to the 8B fast one, and at 8,000 it
+// stops generating for the day.
+
 import type { Env } from "./env";
+import {
+  MODEL_CHAT,
+  MODEL_FAST,
+  MODEL_MAIN,
+  clusterArticles,
+  estimateNeurons,
+  pickModelForUsage,
+  shouldTrigger,
+  type Cluster,
+} from "./logic";
 import {
   QUESTION_IDS,
   QUESTION_LABELS,
   newArticlesSince,
   poolStatus,
-  type Article,
+  toneTrend,
+  type PoolStatusEntry,
   type QuestionId,
 } from "./radar";
+import type { Article } from "./radar-types";
 import { BASELINES } from "./content.generated";
+import {
+  VIEW_SECTION_TYPES,
+  fallbackChoice,
+  materializeViewSpec,
+  verifyViewSpec,
+  type ViewChoice,
+  type ViewSpec,
+} from "./views";
 
-export const MODEL_MAIN = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
-export const MODEL_FAST = "@cf/meta/llama-3.1-8b-instruct-fp8-fast";
-
-// Workers AI neuron pricing (per 1M tokens), from the pricing table the
-// design document verified: 70B fp8-fast 26,668 in / 204,805 out;
-// 8B fp8-fast 4,119 in / 34,868 out.
-const NEURON_RATES: Record<string, { in: number; out: number }> = {
-  [MODEL_MAIN]: { in: 26668, out: 204805 },
-  [MODEL_FAST]: { in: 4119, out: 34868 },
-};
-
-export function estimateNeurons(
-  model: string,
-  inputTokens: number,
-  outputTokens: number,
-): number {
-  const r = NEURON_RATES[model] ?? NEURON_RATES[MODEL_MAIN];
-  return (inputTokens * r.in + outputTokens * r.out) / 1_000_000;
-}
+export { MODEL_CHAT, MODEL_FAST, MODEL_MAIN, estimateNeurons };
 
 function todayUtc(): string {
   return new Date().toISOString().slice(0, 10);
@@ -49,143 +67,72 @@ export async function recordNeurons(env: Env, neurons: number): Promise<void> {
     .run();
 }
 
-/** Daily guard: at 6,000 stop drafting with the 70B model (fall back to
- * 8B); at 8,000 stop automatic generation entirely. */
-export async function pickModel(env: Env): Promise<string | null> {
-  const used = await neuronsUsedToday(env);
-  if (used >= 8000) return null;
-  if (used >= 6000) return MODEL_FAST;
-  return MODEL_MAIN;
+async function pickModel(env: Env): Promise<string | null> {
+  return pickModelForUsage(await neuronsUsedToday(env));
 }
 
 // ---------------------------------------------------------------------------
-// Deterministic clustering: normalise titles, compare significant-token sets.
+// Model call: choose a layout + write prose for one cluster
 // ---------------------------------------------------------------------------
 
-const STOPWORDS = new Set([
-  "the",
-  "a",
-  "an",
-  "of",
-  "to",
-  "in",
-  "on",
-  "for",
-  "and",
-  "or",
-  "as",
-  "at",
-  "by",
-  "with",
-  "from",
-  "after",
-  "over",
-  "amid",
-  "says",
-  "say",
-  "new",
-  "news",
-  "report",
-  "reports",
-  "update",
-  "live",
-  "video",
-  "watch",
-]);
-
-export function titleTokens(title: string): Set<string> {
-  const norm = title
-    .toLowerCase()
-    .replace(/[’']/g, "'")
-    .replace(/[^a-z0-9\u3040-\u30ff\u4e00-\u9fff]+/g, " ");
-  const tokens = new Set<string>();
-  for (const w of norm.split(/\s+/)) {
-    if (w.length >= 3 && !STOPWORDS.has(w)) tokens.add(w);
-  }
-  return tokens;
-}
-
-export interface Cluster {
-  key: string;
-  articles: (Article & { fetchedAt: string })[];
-  tokens: Set<string>;
-}
-
-export function clusterArticles(
-  articles: (Article & { fetchedAt: string })[],
-): Cluster[] {
-  const clusters: Cluster[] = [];
-  for (const a of articles) {
-    if (!a.title) continue;
-    const tokens = titleTokens(a.title);
-    if (tokens.size === 0) continue;
-    let best: Cluster | null = null;
-    let bestScore = 0;
-    for (const c of clusters) {
-      let inter = 0;
-      for (const t of tokens) if (c.tokens.has(t)) inter++;
-      const score = inter / Math.min(tokens.size, c.tokens.size);
-      if (score > bestScore) {
-        bestScore = score;
-        best = c;
-      }
-    }
-    if (best && bestScore >= 0.6) {
-      best.articles.push(a);
-      for (const t of tokens) best.tokens.add(t);
-    } else {
-      const key = [...tokens].slice(0, 6).sort().join(" ");
-      clusters.push({ key, articles: [a], tokens });
-    }
-  }
-  return clusters.sort((x, y) => y.articles.length - x.articles.length);
-}
-
-// ---------------------------------------------------------------------------
-// Drafting (70B, JSON) + verification gate
-// ---------------------------------------------------------------------------
-
-interface DraftBody {
-  headline: string;
-  what: string;
-  sources: string[];
-  impact: string;
-}
-
-const DRAFT_SCHEMA = {
+const VIEW_CHOICE_SCHEMA = {
   type: "object",
   properties: {
-    headline: { type: "string" },
-    what: { type: "string" },
-    sources: { type: "array", items: { type: "string" } },
+    title: { type: "string" },
+    summary: { type: "string" },
     impact: { type: "string" },
+    sections: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          type: { type: "string", enum: VIEW_SECTION_TYPES },
+          heading: { type: "string" },
+        },
+        required: ["type"],
+        additionalProperties: false,
+      },
+    },
   },
-  required: ["headline", "what", "sources", "impact"],
+  required: ["title", "summary", "impact", "sections"],
   additionalProperties: false,
 } as const;
 
-async function draftCluster(
+const SECTION_GUIDE =
+  "部品カタログ（sections に type を並べる。順序がそのまま画面の並びになる）:\n" +
+  "- summary: 出来事の要約（文章）※必須\n" +
+  "- stat_row: プールの数字（累計・最先端・直近24h・この出来事の件数）\n" +
+  "- article_cards: 記事カード列（出典リンク付き）\n" +
+  "- timeline: 記事の時系列\n" +
+  "- tone_chart: その問いの日別件数と平均トーンのグラフ\n" +
+  "- source_list: 報じた媒体の一覧と件数\n" +
+  "- assessment: 見立てパネル（現時点の見立て抜粋＋見立てへの影響）※必須";
+
+interface AiRunResult {
+  response?: unknown;
+  usage?: { prompt_tokens?: number; completion_tokens?: number };
+}
+
+async function chooseViewLayout(
   env: Env,
   model: string,
   qid: QuestionId,
-  cluster: Cluster,
-): Promise<{ body: DraftBody; neurons: number }> {
-  const baseline = (BASELINES[qid] ?? "").slice(0, 3000);
+  cluster: Cluster<Article & { fetchedAt: string }>,
+): Promise<{ choice: ViewChoice; neurons: number }> {
+  const baseline = (BASELINES[qid] ?? "").slice(0, 2500);
   const lines = cluster.articles
     .slice(0, 15)
-    .map(
-      (a) =>
-        `- [${a.domain ?? "?"} / ${a.seendate ?? "?"}] ${a.title ?? ""} (${a.url})`,
-    )
+    .map((a) => `- [${a.domain ?? "?"} / ${a.seendate ?? "?"}] ${a.title ?? ""} (${a.url})`)
     .join("\n");
   const prompt =
-    `あなたは「一次情報レーダー」の記録担当です。以下の記事群は同じ出来事を報じたものとして機械的にまとめられました。\n` +
-    `この出来事について、スレッド記録の形式で下書きを1件だけ作ってください。\n\n` +
-    `形式（JSON）:\n` +
-    `- headline: 出来事の見出し（日本語、1行）\n` +
-    `- what: 何が起きたか（日本語、記事群から読み取れる事実のみ。記事に無い数値・固有名詞を発明しない）\n` +
-    `- sources: 出典URLの配列（下の記事のURLから最大3件、そのままコピーする）\n` +
-    `- impact: 見立てへの影響（下記の現時点の見立てに照らして、この出来事が何を意味するか。判断できない場合は「現時点では見立てに影響なし」と書く）\n\n` +
+    `あなたは「一次情報レーダー探検UI」の画面生成担当です。以下の記事群は同じ出来事を報じたものとして機械的にまとめられました。\n` +
+    `この出来事専用の画面（ダッシュボード）を設計してください。あなたが決めるのは部品の選択と並び順、そして文章だけです。数値データや記事データはシステムが部品に流し込みます。\n\n` +
+    `${SECTION_GUIDE}\n\n` +
+    `出力（JSON）:\n` +
+    `- title: 画面のタイトル（日本語、出来事の見出し）\n` +
+    `- summary: 何が起きたか（日本語、記事群から読み取れる事実のみ。記事に無い数値・固有名詞を発明しない）\n` +
+    `- impact: 見立てへの影響（下記の見立てに照らした意味。判断できなければ「現時点では見立てに影響なし」）\n` +
+    `- sections: 部品の並び（4〜6個。summary を先頭、assessment を最後に置くこと）\n\n` +
     `\n${baseline}\n\n` +
     `\n${lines}\n`;
   const res = (await env.AI.run(model, {
@@ -193,16 +140,13 @@ async function draftCluster(
       {
         role: "system",
         content:
-          "出力は指定されたJSONスキーマに従うJSONのみ。前置きやコードフェンスは付けない。",
+          "出力は指定されたJSONスキーマに従うJSONのみ。前置きやコードフェンスは付けない。HTMLは絶対に書かない。",
       },
       { role: "user", content: prompt },
     ],
-    response_format: { type: "json_schema", json_schema: DRAFT_SCHEMA },
-    max_tokens: 900,
-  })) as {
-    response?: unknown;
-    usage?: { prompt_tokens?: number; completion_tokens?: number };
-  };
+    response_format: { type: "json_schema", json_schema: VIEW_CHOICE_SCHEMA },
+    max_tokens: 1000,
+  })) as AiRunResult;
   const neurons = estimateNeurons(
     model,
     res.usage?.prompt_tokens ?? 0,
@@ -213,108 +157,149 @@ async function draftCluster(
   if (typeof parsed === "string") {
     parsed = JSON.parse(parsed.replace(/^```(?:json)?\s*|\s*```$/g, ""));
   }
-  const body = parsed as DraftBody;
+  const choice = parsed as ViewChoice;
   if (
-    typeof body?.headline !== "string" ||
-    typeof body?.what !== "string" ||
-    !Array.isArray(body?.sources) ||
-    typeof body?.impact !== "string"
+    typeof choice?.title !== "string" ||
+    typeof choice?.summary !== "string" ||
+    typeof choice?.impact !== "string" ||
+    !Array.isArray(choice?.sections) ||
+    choice.sections.some(
+      (s) => !s || typeof s.type !== "string" || !VIEW_SECTION_TYPES.includes(s.type),
+    )
   ) {
-    throw new Error("draft JSON did not match the expected shape");
+    throw new Error("view choice JSON did not match the expected shape");
   }
-  return { body, neurons };
-}
-
-/** Verification gate: every cited source URL must exist in the input set,
- * and every number in the draft text must appear in an input title (or be
- * the cluster's own article count / a year in a seendate). Failures do not
- * discard the draft; they attach warnings and verified=0. */
-function verifyDraft(body: DraftBody, cluster: Cluster): string[] {
-  const warnings: string[] = [];
-  const urlSet = new Set(cluster.articles.map((a) => a.url));
-  for (const s of body.sources) {
-    if (!urlSet.has(s)) warnings.push(`出典URLが入力集合に存在しない: ${s}`);
-  }
-  if (body.sources.length === 0) warnings.push("出典が空");
-  const haystack = cluster.articles
-    .map((a) => `${a.title ?? ""} ${a.seendate ?? ""}`)
-    .join(" ");
-  const allowed = new Set<string>();
-  for (const m of haystack.matchAll(/\d[\d,.]*\d|\d/g)) allowed.add(m[0]);
-  allowed.add(String(cluster.articles.length));
-  const text = `${body.headline} ${body.what} ${body.impact}`;
-  for (const m of text.matchAll(/\d[\d,.]*\d|\d/g)) {
-    if (!allowed.has(m[0])) {
-      warnings.push(`入力に現れない数値: ${m[0]}`);
-      break; // one example is enough to flag the draft
-    }
-  }
-  return warnings;
+  return { choice, neurons };
 }
 
 // ---------------------------------------------------------------------------
-// The radar check itself (cron + manual trigger share this path)
+// View assembly for one cluster (shared by cron generation)
+// ---------------------------------------------------------------------------
+
+export async function generateViewForCluster(
+  env: Env,
+  model: string,
+  qid: QuestionId,
+  cluster: Cluster<Article & { fetchedAt: string }>,
+  pool: PoolStatusEntry,
+  origin: "cron" | "chat",
+): Promise<{ spec: ViewSpec; warnings: string[] }> {
+  let choice: ViewChoice;
+  try {
+    ({ choice } = await chooseViewLayout(env, model, qid, cluster));
+  } catch {
+    choice = fallbackChoice(cluster, QUESTION_LABELS[qid]);
+  }
+  const trend = await toneTrend(env, qid, 30).catch(() => []);
+  const spec = materializeViewSpec({
+    questionId: qid,
+    generatedAt: new Date().toISOString(),
+    origin,
+    cluster,
+    choice,
+    trend,
+    pool: {
+      total: pool.total,
+      frontier: pool.frontier,
+      recent24h: pool.recent24h,
+    },
+    baseline: BASELINES[qid] ?? "",
+  });
+  const warnings = verifyViewSpec(spec, {
+    articleUrls: new Set(cluster.articles.map((a) => a.url)),
+    articles: cluster.articles,
+  });
+  return { spec, warnings };
+}
+
+export async function saveView(
+  env: Env,
+  qid: QuestionId,
+  clusterKey: string,
+  spec: ViewSpec,
+  articleCount: number,
+  warnings: string[],
+  model: string | null,
+): Promise<number> {
+  const info = await env.DB.prepare(
+    "INSERT INTO generated_views (question_id, cluster_key, title, spec, article_count, verified, warnings, model, origin, created_at) " +
+      "VALUES (?,?,?,?,?,?,?,?,?,?)",
+  )
+    .bind(
+      qid,
+      clusterKey,
+      spec.title,
+      JSON.stringify(spec),
+      articleCount,
+      warnings.length === 0 ? 1 : 0,
+      JSON.stringify(warnings),
+      model,
+      spec.origin,
+      spec.generatedAt,
+    )
+    .run();
+  return Number(info.meta.last_row_id ?? 0);
+}
+
+// ---------------------------------------------------------------------------
+// The radar check (cron + manual trigger share this path)
 // ---------------------------------------------------------------------------
 
 export interface RadarCheckSummary {
   checkedAt: string;
   model: string | null;
   neuronsUsedToday: number;
-  newDrafts: number;
-  draftIds: number[];
+  newViews: number;
+  viewIds: number[];
   perQuestion: {
     questionId: QuestionId;
     newArticles: number;
     frontierAdvanced: boolean;
-    drafts: number;
+    views: number;
     skipped?: string;
   }[];
 }
 
-const NEW_ARTICLE_THRESHOLD = 10;
-const MAX_DRAFTS_PER_QUESTION = 3;
+const MAX_VIEWS_PER_QUESTION = 3;
 const MIN_CLUSTER_SIZE = 2;
 
 export async function runRadarCheck(env: Env): Promise<RadarCheckSummary> {
   const checkedAt = new Date().toISOString();
   const status = await poolStatus(env);
-  const frontierByQ = new Map(status.map((s) => [s.questionId, s.frontier]));
+  const byQ = new Map(status.map((s) => [s.questionId, s]));
   const summary: RadarCheckSummary = {
     checkedAt,
     model: null,
     neuronsUsedToday: await neuronsUsedToday(env),
-    newDrafts: 0,
-    draftIds: [],
+    newViews: 0,
+    viewIds: [],
     perQuestion: [],
   };
 
   for (const qid of QUESTION_IDS) {
+    const pool = byQ.get(qid);
+    if (!pool) continue;
     const state = await env.DB.prepare(
       "SELECT last_check_at, frontier FROM state WHERE question_id =?",
     )
       .bind(qid)
       .first<{ last_check_at: string | null; frontier: string | null }>();
-    const frontier = frontierByQ.get(qid) ?? null;
     const frontierAdvanced =
-      frontier !== null &&
-      (state?.frontier == null || frontier > state.frontier);
+      pool.frontier !== null && (state?.frontier == null || pool.frontier > state.frontier);
     // First ever check: only look back 24h so the standing backfill does
     // not produce an unbounded flood; afterwards, everything since the
     // last check.
-    const since =
-      state?.last_check_at ??
-      new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+    const since = state?.last_check_at ?? new Date(Date.now() - 24 * 3600 * 1000).toISOString();
     const fresh = await newArticlesSince(env, qid, since);
     const entry: RadarCheckSummary["perQuestion"][number] = {
       questionId: qid,
       newArticles: fresh.length,
       frontierAdvanced,
-      drafts: 0,
+      views: 0,
     };
     summary.perQuestion.push(entry);
 
-    const triggered = fresh.length >= NEW_ARTICLE_THRESHOLD || frontierAdvanced;
-    if (triggered && fresh.length > 0) {
+    if (shouldTrigger(fresh.length, frontierAdvanced)) {
       const model = await pickModel(env);
       summary.model = model;
       if (!model) {
@@ -323,33 +308,30 @@ export async function runRadarCheck(env: Env): Promise<RadarCheckSummary> {
         const clusters = clusterArticles(fresh).filter(
           (c) => c.articles.length >= MIN_CLUSTER_SIZE,
         );
-        for (const cluster of clusters.slice(0, MAX_DRAFTS_PER_QUESTION)) {
+        for (const cluster of clusters.slice(0, MAX_VIEWS_PER_QUESTION)) {
           try {
-            const { body } = await draftCluster(env, model, qid, cluster);
-            const warnings = verifyDraft(body, cluster);
-            const info = await env.DB.prepare(
-              "INSERT INTO drafts (question_id, cluster_key, headline, body, article_count, verified, warnings, status, model, created_at) " +
-                "VALUES (?,?,?,?,?,?,?, 'pending',?,?)",
-            )
-              .bind(
-                qid,
-                cluster.key,
-                body.headline,
-                JSON.stringify(body),
-                cluster.articles.length,
-                warnings.length === 0 ? 1 : 0,
-                JSON.stringify(warnings),
-                model,
-                checkedAt,
-              )
-              .run();
-            entry.drafts++;
-            summary.newDrafts++;
-            if (info.meta.last_row_id) {
-              summary.draftIds.push(Number(info.meta.last_row_id));
-            }
+            const { spec, warnings } = await generateViewForCluster(
+              env,
+              model,
+              qid,
+              cluster,
+              pool,
+              "cron",
+            );
+            const id = await saveView(
+              env,
+              qid,
+              cluster.key,
+              spec,
+              cluster.articles.length,
+              warnings,
+              model,
+            );
+            entry.views++;
+            summary.newViews++;
+            if (id) summary.viewIds.push(id);
           } catch (err) {
-            entry.skipped = `draft failed: ${err instanceof Error ? err.message : String(err)}`;
+            entry.skipped = `view generation failed: ${err instanceof Error ? err.message : String(err)}`;
           }
         }
       }
@@ -359,12 +341,7 @@ export async function runRadarCheck(env: Env): Promise<RadarCheckSummary> {
       "INSERT INTO state (question_id, last_check_at, frontier, total) VALUES (?,?,?,?) " +
         "ON CONFLICT(question_id) DO UPDATE SET last_check_at = excluded.last_check_at, frontier = excluded.frontier, total = excluded.total",
     )
-      .bind(
-        qid,
-        checkedAt,
-        frontier,
-        status.find((s) => s.questionId === qid)?.total ?? 0,
-      )
+      .bind(qid, checkedAt, pool.frontier, pool.total)
       .run();
   }
 
