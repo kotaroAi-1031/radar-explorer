@@ -279,10 +279,7 @@ describe("event ranking", () => {
   });
 
   it("breaks ties between two dateless events by question id", () => {
-    const ranked = rankEvents([
-      ev("q3", "later-q", 7, 7, null),
-      ev("q1", "earlier-q", 7, 7, null),
-    ]);
+    const ranked = rankEvents([ev("q3", "later-q", 7, 7, null), ev("q1", "earlier-q", 7, 7, null)]);
     expect(keys(ranked)).toEqual(["earlier-q", "later-q"]);
   });
 
