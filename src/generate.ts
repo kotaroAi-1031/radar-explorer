@@ -202,14 +202,24 @@ async function chooseViewLayout(
 export async function recentViewProse(
   env: Env,
   qid: QuestionId,
+  excludeClusterKey?: string,
   limit = 20,
 ): Promise<{ title: string; summary: string }[]> {
   try {
-    const rs = await env.DB.prepare(
-      "SELECT title, spec FROM generated_views WHERE question_id = ? ORDER BY id DESC LIMIT ?",
-    )
-      .bind(qid, limit)
-      .all();
+    // Views of the SAME event (same cluster key) legitimately share its
+    // title — the duplicate checks target recycling across *different*
+    // events, so the current cluster's own earlier views are excluded.
+    const rs = excludeClusterKey
+      ? await env.DB.prepare(
+          "SELECT title, spec FROM generated_views WHERE question_id = ? AND cluster_key <> ? ORDER BY id DESC LIMIT ?",
+        )
+          .bind(qid, excludeClusterKey, limit)
+          .all()
+      : await env.DB.prepare(
+          "SELECT title, spec FROM generated_views WHERE question_id = ? ORDER BY id DESC LIMIT ?",
+        )
+          .bind(qid, limit)
+          .all();
     return rs.results.map((r) => {
       let summary = "";
       try {
@@ -240,7 +250,7 @@ export async function generateViewForCluster(
 }> {
   const [trend, existingProse] = await Promise.all([
     toneTrend(env, qid, 30).catch(() => []),
-    recentViewProse(env, qid),
+    recentViewProse(env, qid, cluster.key),
   ]);
   const assemble = (choice: ViewChoice): { spec: ViewSpec; warnings: string[] } => {
     const spec = materializeViewSpec({
@@ -424,7 +434,7 @@ export async function buildEventView(
     articleUrls: new Set(cluster.articles.map((a) => a.url)),
     articles: cluster.articles,
     baseline: BASELINES[qid] ?? "",
-    existingProse: await recentViewProse(env, qid),
+    existingProse: await recentViewProse(env, qid, cluster.key),
   });
   const viewId = await saveView(
     env,
