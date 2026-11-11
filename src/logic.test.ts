@@ -183,6 +183,31 @@ describe("number and URL extraction", () => {
     expect(allowed.has("2")).toBe(true); // the article count
     expect(allowed.has("999")).toBe(false);
   });
+
+  it("allowed numbers include the seendate's calendar parts", () => {
+    const allowed = allowedNumbersFor([{ title: "no numbers here", seendate: "20260815T120000Z" }]);
+    expect(allowed.has("2026")).toBe(true);
+    expect(allowed.has("8")).toBe(true);
+    expect(allowed.has("08")).toBe(true);
+    expect(allowed.has("15")).toBe(true);
+  });
+
+  it("allowed numbers treat comma-grouped and plain spellings as the same number", () => {
+    const allowed = allowedNumbersFor([{ title: "1,250 people gathered", seendate: null }]);
+    expect(allowed.has("1,250")).toBe(true);
+    expect(allowed.has("1250")).toBe(true);
+  });
+
+  it("allowed numbers include trend counts and rounded tones", () => {
+    const allowed = allowedNumbersFor([], [
+      { count: 42, avgTone: -2.34 },
+      { count: 7, avgTone: null },
+    ]);
+    expect(allowed.has("42")).toBe(true);
+    expect(allowed.has("7")).toBe(true);
+    expect(allowed.has("2.3")).toBe(true);
+    expect(allowed.has("2")).toBe(true);
+  });
 });
 
 describe("mutation strengthening (behaviour-level)", () => {

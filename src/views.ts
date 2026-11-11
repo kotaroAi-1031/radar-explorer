@@ -375,6 +375,9 @@ export interface ViewGateContext {
   articleUrls: Set<string>;
   /** Articles the prose may draw numbers from. */
   articles: { title: string | null; seendate: string | null }[];
+  /** The question's tone trend shown in the view: prose may cite its
+   *  daily counts and tones, so they belong to the allowed numbers. */
+  trend?: ToneTrendPoint[];
   /** The question's baseline text: a summary that merely copies it is
    *  not a summary of the event and is flagged as a duplicate. */
   baseline?: string;
@@ -398,7 +401,7 @@ export const DUPLICATE_WARNING_PREFIX = "重複検出:";
 /** Returns a list of warnings; an empty list means the spec passed. */
 export function verifyViewSpec(spec: ViewSpec, ctx: ViewGateContext): string[] {
   const warnings: string[] = [];
-  const allowed = allowedNumbersFor(ctx.articles);
+  const allowed = allowedNumbersFor(ctx.articles, ctx.trend ?? []);
   const prose: string[] = [spec.title];
   for (const s of spec.sections) {
     if (s.heading) prose.push(s.heading);

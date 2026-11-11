@@ -417,6 +417,20 @@ describe("verification gate", () => {
     expect(verifyViewSpec(spec, ctx(withNumber))).toEqual([]);
   });
 
+  it("accepts a calendar date spelled out from a seendate", () => {
+    const spec = materialize(three, choice({ summary: "2026年8月15日に報じられた。" }));
+    expect(verifyViewSpec(spec, ctx(three))).toEqual([]);
+  });
+
+  it("accepts prose citing the trend when the context carries it", () => {
+    const trend = [{ day: "20260815", count: 42, avgTone: -2.34 }];
+    const spec = materialize(
+      three,
+      choice({ summary: "この日は42件の報道があり、平均トーンは-2.3だった。" }),
+    );
+    expect(verifyViewSpec(spec, { ...ctx(three), trend })).toEqual([]);
+  });
+
   it("rejects URLs pasted into prose", () => {
     const spec = materialize(
       three,

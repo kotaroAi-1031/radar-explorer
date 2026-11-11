@@ -270,6 +270,7 @@ export async function generateViewForCluster(
     const warnings = verifyViewSpec(spec, {
       articleUrls: new Set(cluster.articles.map((a) => a.url)),
       articles: cluster.articles,
+      trend,
       baseline: BASELINES[qid] ?? "",
       existingProse,
     });
@@ -433,6 +434,7 @@ export async function buildEventView(
   const warnings = verifyViewSpec(spec, {
     articleUrls: new Set(cluster.articles.map((a) => a.url)),
     articles: cluster.articles,
+    trend,
     baseline: BASELINES[qid] ?? "",
     existingProse: await recentViewProse(env, qid, cluster.key),
   });

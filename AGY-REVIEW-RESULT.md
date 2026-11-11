@@ -65,6 +65,7 @@
 - **修正案**:
   - `allowedNumbersFor` で `seendate` から年・月・日（先頭ゼロ有無の両方）を展開して許容集合に追加し、カンマ区切り数値の正規化（カンマ除去形）も登録する。
   - `allowedNumbersFor`（および `ViewGateContext`）が任意の `trend`（`ToneTrendPoint[]`）を受け取れるようにし、日別 `count` と `avgTone`（小数第1位・四捨五入整数など）も許容集合に含める。
+- **対応**: 修正済み。実コードと `docs/generative-ui.md:65-67` の記述を確認し、`allowedNumbersFor` に seendate の年月日展開（先頭ゼロ有無の両方）、カンマ除去形の併記、任意引数 `trend`（日別 count と avgTone の小数第1位・整数化した絶対値）を実装。`ViewGateContext.trend` を追加し、呼び出し側3箇所（cron 生成・出来事画面・`build_view`）すべてで trend を渡すよう統一した。テスト5件を追加（logic 3件・views 2件）。
 
 ### 5. [P1] neurons ガード発動時（上限到達時）にも D1 `state` の `last_check_at` / `frontier` を進めてしまい、未生成の差分が永久にスキップされる（＋クラスタ単位の再判定・自動タイトル生成のガード未適用）
 
