@@ -37,6 +37,7 @@
   - しかし `poolStatus`（累計・frontier・直近24h件数）、`toneTrend`（日別件数と平均トーン）、`newArticlesSince`（差分検知の新着記事取得）の3関数だけ `WHERE question_id = ?` が抜けておりテーブル全件を対象にしている。そのため、同一 DB の共有構成や誤混入行がある場合に `searchArticles` / `mediaBreakdown` の件数と `poolStatus` / `toneTrend` / `newArticlesSince` の件数が食い違う。
 - **修正案**:
   - `poolStatus`（累計・frontier 取得および `seendate >= ?` の直近24h集計）、`toneTrend`、`newArticlesSince` のすべての SQL に `question_id = ?` 条件とバインド引数を追加し、`searchArticles` 等と一貫させる。
+- **対応**: 修正済み。実コードで再現を確認し、`poolStatus` の2クエリ・`toneTrend`・`newArticlesSince` の全 SQL に `question_id = ?` とバインド引数を追加した。
 
 ### 3. [P1] `build_view` ツールで検証ゲート（`verifyViewSpec`）に渡す記事集合とタイトル上書きが不整合で、正常な画面が `verified = 0`（警告付き）になる
 
