@@ -236,7 +236,7 @@ function HotEventsOutput({
             <button
               type="button"
               className="event-open"
-              disabled={pendingKey === e.clusterKey}
+              disabled={pendingKey !== null}
               onClick={() => onOpenEvent(e.questionId, e.clusterKey)}
             >
               {pendingKey === e.clusterKey ? "生成中…" : "画面を見る"}
@@ -389,6 +389,7 @@ function ChatPanel({
 }) {
   const [input, setInput] = useState("");
   const [pendingKey, setPendingKey] = useState<string | null>(null);
+  const [eventError, setEventError] = useState<string | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   const agent = useAgent({
@@ -410,6 +411,7 @@ function ChatPanel({
     messages: rawMessages,
     sendMessage,
     status,
+    error,
   } = useAgentChat({
     agent,
   });
@@ -437,16 +439,38 @@ function ChatPanel({
 
   const openEvent = useCallback<OpenEventFn>(
     (questionId, clusterKey) => {
+      // One generation at a time: while a request is in flight every
+      // event button is disabled (see HotEventsOutput); this guard
+      // covers repeats that bypass the button state.
+      if (pendingKey !== null) return;
       setPendingKey(clusterKey);
-      void fetch(`/api/threads/${encodeURIComponent(threadId)}/event-view`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ questionId, clusterKey }),
-      })
-        .catch(() => undefined)
-        .finally(() => setPendingKey(null));
+      setEventError(null);
+      void (async () => {
+        try {
+          const res = await fetch(`/api/threads/${encodeURIComponent(threadId)}/event-view`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ questionId, clusterKey }),
+          });
+          const data = (await res.json().catch(() => null)) as { error?: unknown } | null;
+          if (!res.ok) {
+            setEventError(
+              typeof data?.error === "string" ? data.error : "画面の生成に失敗しました。",
+            );
+            return;
+          }
+          // The view was appended server-side: refresh the sidebar's
+          // view list and this thread's updated-at too.
+          onViewsChanged();
+          onThreadsChanged();
+        } catch {
+          setEventError("画面の生成に失敗しました。通信状態を確認してもう一度お試しください。");
+        } finally {
+          setPendingKey(null);
+        }
+      })();
     },
-    [threadId],
+    [threadId, pendingKey, onViewsChanged, onThreadsChanged],
   );
 
   return (
@@ -458,6 +482,21 @@ function ChatPanel({
             {<MessageParts message={m} onOpenEvent={openEvent} pendingKey={pendingKey} />}
           </div>
         ))}
+        {status === "submitted" && (
+          <p className="empty" role="status">
+            案内役が応答を準備しています…
+          </p>
+        )}
+        {(status === "error" || error != null) && (
+          <p className="empty" role="alert">
+            応答の取得に失敗しました。時間をおいてもう一度お試しください。
+          </p>
+        )}
+        {eventError && (
+          <p className="empty" role="alert">
+            {eventError}
+          </p>
+        )}
         <div ref={chatEndRef} />
       </div>
       <form
@@ -535,20 +574,29 @@ export function App() {
   const creatingRef = useRef(false);
 
   const loadThreads = useCallback(async () => {
-    const res = await fetch("/api/threads");
-    if (res.ok) {
-      const data = (await res.json()) as { threads: ThreadInfo[] };
-      setThreads(data.threads);
-      return data.threads;
+    try {
+      const res = await fetch("/api/threads");
+      if (res.ok) {
+        const data = (await res.json()) as { threads: ThreadInfo[] };
+        setThreads(data.threads);
+        return data.threads;
+      }
+    } catch {
+      // Network failure: keep showing the current list instead of
+      // surfacing an unhandled rejection; a later load can recover.
     }
     return null;
   }, []);
 
   const loadViews = useCallback(async () => {
-    const res = await fetch("/api/views");
-    if (res.ok) {
-      const data = (await res.json()) as { views: GeneratedView[] };
-      setViews(data.views);
+    try {
+      const res = await fetch("/api/views");
+      if (res.ok) {
+        const data = (await res.json()) as { views: GeneratedView[] };
+        setViews(data.views);
+      }
+    } catch {
+      // Same as loadThreads: a failed refresh keeps the current list.
     }
   }, []);
 
@@ -566,6 +614,8 @@ export function App() {
       const data = (await res.json()) as { thread: ThreadInfo };
       setThreads((prev) => [data.thread, ...prev.filter((t) => t.id !== data.thread.id)]);
       return data.thread;
+    } catch {
+      return null;
     } finally {
       creatingRef.current = false;
       setCreating(false);

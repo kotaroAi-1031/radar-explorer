@@ -112,6 +112,7 @@
   - `ChatPanel` で `status === "submitted"` 時のローディング表示と、`status === "error"` 時および `openEvent` 失敗時の穏当なエラーメッセージをメッセージ欄に表示する。
   - `openEvent` ではリクエスト中の重複押下を抑止し、成功時に `onViewsChanged()` / `onThreadsChanged()` を呼び、失敗時はサーバーが返した穏当なエラー文言（またはフォールバック文言）を表示する。
   - `loadThreads` / `loadViews` を `try/catch` で保護する。
+- **対応**: 修正済み。実コードで未処理を確認し、`ChatPanel` に `status === "submitted"` のローディング表示（`role="status"`）と、チャットエラー時・`openEvent` 失敗時のエラーメッセージ表示（`role="alert"`、失敗時はサーバーの穏当な文言を優先）を追加した。`openEvent` は応答ステータスと `{ error }` を確認し、リクエスト中は全出来事ボタンを無効化して重複押下を抑止、成功時に `onViewsChanged()` / `onThreadsChanged()` を呼ぶよう変更。`loadThreads` / `loadViews` を `try/catch` で保護し（失敗時は現行リストを保持）、同種の未捕捉だった `createThread` の fetch 失敗も `null` を返すよう揃えた。
 
 ### 8. [P2] MCP サーバー・HTTP API・Cron チェックにおける例外未捕捉と `searchArticles` の `LIKE` ワイルドカード未エスケープ
 
