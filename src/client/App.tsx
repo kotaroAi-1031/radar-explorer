@@ -390,7 +390,7 @@ function ChatPanel({
   const [input, setInput] = useState("");
   const [pendingKey, setPendingKey] = useState<string | null>(null);
   const [eventError, setEventError] = useState<string | null>(null);
-  const chatEndRef = useRef<HTMLDivElement>(null);
+  const messagesRef = useRef<HTMLDivElement>(null);
 
   const agent = useAgent({
     agent: "explorer-agent",
@@ -418,7 +418,13 @@ function ChatPanel({
   const messages = rawMessages as unknown as ChatMessage[];
 
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    // Scroll the message container itself — never the window, so the
+    // stacked mobile layout cannot fling the sidebar off-screen — and
+    // only once there is something to scroll to.
+    const el = messagesRef.current;
+    if (!el || messages.length === 0) return;
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    el.scrollTo({ top: el.scrollHeight, behavior: reduce ? "auto" : "smooth" });
   }, [messages]);
 
   const wasBusy = useRef(false);
@@ -475,7 +481,7 @@ function ChatPanel({
 
   return (
     <div className="chat">
-      <div className="messages">
+      <div className="messages" ref={messagesRef} role="log" aria-live="polite">
         {messages.map((m) => (
           <div key={m.id} className={`msg ${m.role}`}>
             <div className="msg-role">{m.role === "user" ? "あなた" : "案内役"}</div>
@@ -497,7 +503,6 @@ function ChatPanel({
             {eventError}
           </p>
         )}
-        <div ref={chatEndRef} />
       </div>
       <form
         onSubmit={(e) => {
@@ -678,6 +683,7 @@ export function App() {
                 key={t.id}
                 type="button"
                 className={t.id === activeId ? "thread-item active" : "thread-item"}
+                aria-current={t.id === activeId ? "page" : undefined}
                 onClick={() => setActiveId(t.id)}
               >
                 <span className="thread-title">{t.title}</span>

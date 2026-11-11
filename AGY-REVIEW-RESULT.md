@@ -154,6 +154,7 @@
   - `ViewOverlay` の閉じるボタンを sticky ヘッダ配置にして本文との重なり・スクロール消失を解消する。
   - モバイル向けに `dvh`・`env(safe-area-inset-bottom)`・小画面での `.thread-list` 高さ圧縮・`.event-row` の折り返しレイアウトを追加する。
   - `ViewRenderer` で `http://` / `https://` 以外の URL をリンク化しないヘルパーを導入する。
+- **対応**: 修正済み。実コードで各項目を確認し、(a) 選択中スレッドへの `aria-current="page"` と `.messages` への `role="log"` / `aria-live="polite"` を追加、(b) 自動スクロールを `.messages` コンテナ自身の `scrollTo`（メッセージがある場合のみ、`prefers-reduced-motion` 時は即時）に変更、(c) 閉じるボタンを `position: sticky` のインフロー配置に変更、(d) `dvh` フォールバック併記・`.app` 下部への `env(safe-area-inset-bottom)`・900px 以下での `.thread-list` 圧縮・560px 以下での `.event-row` 折り返しを追加、(e) `ViewRenderer` に `safeUrl` ヘルパーを導入し http/https 以外はリンク化しないよう変更した。
 
 ### 10. [P3] CSS セレクタ名の不整合（`.tool-output` vs `.toolpart`）・未使用クラス・ドキュメントと実装の記述差分
 

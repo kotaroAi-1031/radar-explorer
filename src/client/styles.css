@@ -37,7 +37,7 @@ body {
 .app {
   max-width: 1280px;
   margin: 0 auto;
-  padding: 24px 20px 40px;
+  padding: 24px 20px calc(40px + env(safe-area-inset-bottom));
 }
 
 .eyebrow {
@@ -97,7 +97,13 @@ summary:focus-visible {
     grid-template-columns: minmax(0, 1fr);
   }
   .app {
-    padding: 16px 12px 32px;
+    padding: 16px 12px calc(32px + env(safe-area-inset-bottom));
+  }
+  /* Stacked layout: keep the thread list from pushing the chat most
+     of the way down the screen. */
+  .thread-list {
+    max-height: 30vh;
+    max-height: 30dvh;
   }
 }
 
@@ -135,6 +141,7 @@ summary:focus-visible {
   flex-direction: column;
   gap: 6px;
   max-height: 46vh;
+  max-height: 46dvh;
   overflow-y: auto;
 }
 
@@ -477,6 +484,14 @@ summary:focus-visible {
   .tone-charts {
     grid-template-columns: 1fr;
   }
+  /* Let the open button drop below the title instead of squeezing
+     the title into a few characters per line. */
+  .event-row {
+    flex-wrap: wrap;
+  }
+  .event-open {
+    margin-left: auto;
+  }
 }
 
 .tone-chart {
@@ -549,6 +564,7 @@ summary:focus-visible {
   flex-direction: column;
   gap: 14px;
   max-height: 62vh;
+  max-height: 62dvh;
   overflow-y: auto;
   padding-right: 4px;
 }
@@ -702,9 +718,12 @@ dialog.view-dialog::backdrop {
 }
 
 .overlay-close {
-  position: absolute;
-  top: 10px;
-  right: 10px;
+  /* In-flow and sticky: never overlaps the view header, and stays
+     reachable while the dialog content scrolls. */
+  position: sticky;
+  top: 0;
+  display: block;
+  margin-left: auto;
   min-width: 44px;
   padding: 0;
   font-size: 1.15rem;
