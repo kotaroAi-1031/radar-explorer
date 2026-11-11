@@ -174,3 +174,4 @@
 - **修正案**:
   - `src/client/styles.css` の `.tool-output` を `.toolpart` に修正し、未使用の `.badge-warn`・`.warnings` を整理する。
   - `docs/architecture.md` と `docs/auto-generation.md` の記述を現行実装に合わせて更新する。
+- **対応**: 修正済み。実コード・実装と照合し、`.tool-output` セレクタ2件を `.toolpart` に直し、未使用の `.badge-warn`・`.warnings` を削除した。ドキュメントは `architecture.md`（`useAgent` への訂正、D1 テーブル一覧への `threads` 追加、Base UI は依存のみで現行未使用と明記）と `auto-generation.md`（`last_frontier` → `frontier`、単価表にチャット用 Mistral Small 3.1 24B = input 31,909 / output 50,455 を追加）を現行実装に合わせた。あわせて既存の整形ずれ（`src/views.test.ts`、本変更前から存在）を含むテストファイルの整形を `oxfmt` で揃えた。

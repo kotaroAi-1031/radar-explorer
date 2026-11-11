@@ -243,11 +243,6 @@ summary:focus-visible {
   color: var(--danger);
 }
 
-.badge-warn {
-  border-color: var(--warn);
-  color: var(--warn);
-}
-
 .board-label {
   font-size: 0.92rem;
   margin: 3px 0;
@@ -339,7 +334,7 @@ summary:focus-visible {
 }
 
 .assessment details summary,
-.tool-output details summary {
+.toolpart details summary {
   cursor: pointer;
   min-height: 44px;
   display: flex;
@@ -349,7 +344,7 @@ summary:focus-visible {
 }
 
 .assessment pre,
-.tool-output pre {
+.toolpart pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   font-size: 0.8rem;
@@ -544,13 +539,6 @@ summary:focus-visible {
   color: var(--warn);
   font-size: 0.84rem;
   margin: 8px 0 0;
-}
-
-.warnings {
-  margin: 6px 0;
-  padding-left: 18px;
-  color: var(--warn);
-  font-size: 0.82rem;
 }
 
 .empty {

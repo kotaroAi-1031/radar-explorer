@@ -199,10 +199,13 @@ describe("number and URL extraction", () => {
   });
 
   it("allowed numbers include trend counts and rounded tones", () => {
-    const allowed = allowedNumbersFor([], [
-      { count: 42, avgTone: -2.34 },
-      { count: 7, avgTone: null },
-    ]);
+    const allowed = allowedNumbersFor(
+      [],
+      [
+        { count: 42, avgTone: -2.34 },
+        { count: 7, avgTone: null },
+      ],
+    );
     expect(allowed.has("42")).toBe(true);
     expect(allowed.has("7")).toBe(true);
     expect(allowed.has("2.3")).toBe(true);
