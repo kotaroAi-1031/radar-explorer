@@ -25,6 +25,7 @@
   - Durable Object の `this.broadcast()`（`src/agent.ts:465`）はその DO インスタンス（`"main"`）に接続している WebSocket にしか配信されないため、利用者が新規作成したスレッド（UUID 名の DO インスタンス）を開いている場合、新着画面が自動生成されても通知が届かず画面一覧が自動更新されない。
 - **修正案**:
   - `ExplorerAgent` にブロードキャスト配信用の RPC メソッド（例: `notifyRadarViews`）を用意し、`runRadarCheck()` で新着画面が生成された際に自身の `this.broadcast()` に加えて D1 の `threads` テーブルにあるスレッド（`"main"` 以外）の DO スタブへも通知を配信するようにする。
+- **対応**: 修正済み。実コードで配信経路を確認し、`ExplorerAgent.notifyRadarViews`（RPC）を追加して、`runRadarCheck()` が自身の broadcast に加え、D1 `threads` の全スレッド（自分以外）のスタブへ同じペイロードを中継するよう変更した。中継の失敗はスレッドごとにログに留め、チェック自体は失敗させない。
 
 ### 2. [P1] `poolStatus` / `toneTrend` / `newArticlesSince` の SQL クエリに `question_id = ?` 条件が欠落している
 

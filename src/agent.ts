@@ -1,5 +1,6 @@
 import { AIChatAgent } from "@cloudflare/ai-chat";
 import { convertToModelMessages, stepCountIs, streamText, tool, type UIMessage } from "ai";
+import { getAgentByName } from "agents";
 import { createAI } from "agents/models/ai-sdk";
 import { z } from "zod";
 import type { Env } from "./env";
@@ -477,20 +478,46 @@ export class ExplorerAgent extends AIChatAgent<Env> {
     return result.toUIMessageStreamResponse();
   }
 
+  /** Delivery endpoint for a radar-views notice produced by another
+   *  instance: relays the payload to this instance's connected clients.
+   *  The check itself always runs on "main", but each chat thread is
+   *  its own instance, so without this relay only clients connected to
+   *  "main" would ever hear about new views. */
+  async notifyRadarViews(payload: string): Promise<void> {
+    this.broadcast(payload);
+  }
+
   /** Cron entry point (also callable from /api/check-now for verification).
    *  Broadcasts a notice to connected screens when new views were generated. */
   async runRadarCheck(): Promise<RadarCheckSummary> {
     const summary = await runRadarCheck(this.env);
     if (summary.newViews > 0) {
-      this.broadcast(
-        JSON.stringify({
-          type: "radar-views",
-          message: "新しい画面が生成されました",
-          newViews: summary.newViews,
-          viewIds: summary.viewIds,
-          checkedAt: summary.checkedAt,
-        }),
-      );
+      const payload = JSON.stringify({
+        type: "radar-views",
+        message: "新しい画面が生成されました",
+        newViews: summary.newViews,
+        viewIds: summary.viewIds,
+        checkedAt: summary.checkedAt,
+      });
+      this.broadcast(payload);
+      // Relay the same notice to every other thread's instance so a
+      // client viewing any thread refreshes its view list. Relay
+      // failures are logged per thread and never fail the check.
+      try {
+        const rs = await this.env.DB.prepare("SELECT id FROM threads").all();
+        for (const row of rs.results) {
+          const id = String(row.id);
+          if (id === this.name) continue;
+          try {
+            const stub = await getAgentByName(this.env.EXPLORER_AGENT, id);
+            await stub.notifyRadarViews(payload);
+          } catch (err) {
+            console.error("radar-views relay failed", id, err);
+          }
+        }
+      } catch (err) {
+        console.error("radar-views relay failed", err);
+      }
     }
     return summary;
   }
