@@ -127,6 +127,7 @@
   - `src/mcp.ts` の各ツールハンドラおよび `src/index.ts` の API ルートを `try/catch` で保護し、穏当なエラー応答を返すようにする。
   - `runRadarCheck` の `newArticlesSince` 呼び出しも問い単位で `try/catch` し、失敗した問いは `entry.skipped` に記録して他の問いの処理を継続する。
   - `searchArticles` で `%`, `_`, `\` をエスケープし `title LIKE ? ESCAPE '\\'` を使用する。
+- **対応**: 修正済み。実コードで未捕捉を確認し、`src/mcp.ts` の全ツール（7件）を `try/catch` で保護してチャット側ツールと同じ穏当なエラー文言を返すよう統一、`src/index.ts` の `/api/status`・`/api/views` にも `try/catch`（500＋穏当な文言）を追加した。`newArticlesSince` の問い単位の捕捉は指摘5の変更に含めて実施（失敗した問いは `skipped` に記録し、その問いの `state` は進めずに継続）。`searchArticles` の LIKE エスケープは指摘2の変更に含めて実施した。
 
 ### 9. [P2] アクセシビリティ属性の不足・モバイル（iPhone / Safari）表示の崩れ・外部リンク URL スキーム検証の未実装
 
