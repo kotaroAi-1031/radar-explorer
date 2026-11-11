@@ -96,6 +96,7 @@
 - **修正案**:
   - `src/client/App.tsx` に `MediaBreakdownOutput` コンポーネント（累計記事数・媒体種類数・上位ドメインの件数と割合リスト、および 0 件時の空状態文言）を追加し、`ToolOutput` の `case "media_breakdown":` で描画する。
   - `ListViewsOutput` および `ViewRenderer` の `source_list` でも 0 件時に穏当な空状態メッセージを表示する。
+- **対応**: 修正済み。実コードで分岐欠落を確認し、`MediaBreakdownOutput`（累計・媒体種類数・上位ドメインの件数と割合、0件時の空状態）を追加して `ToolOutput` に `case "media_breakdown"` を接続した。あわせて `ListViewsOutput` と `ViewRenderer` の `source_list` に 0 件時の空状態メッセージを追加した。
 
 ### 7. [P2] チャット応答・出来事画面生成・初期データ取得におけるローディング表示とエラー表示の不足
 

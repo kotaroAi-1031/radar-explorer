@@ -69,18 +69,21 @@ function Section({ section }: { section: ViewSection }) {
       {section.type === "article_cards" && <ArticleCards articles={section.articles} />}
       {section.type === "timeline" && <Timeline articles={section.articles} />}
       {section.type === "tone_chart" && <ToneChart trend={section.trend} />}
-      {section.type === "source_list" && (
-        <ul className="source-list">
-          {section.sources.map((s) => (
-            <li key={s.domain}>
-              <a href={s.sampleUrl} target="_blank" rel="noreferrer">
-                {s.domain}
-              </a>
-              <span className="source-count">{s.count} 件</span>
-            </li>
-          ))}
-        </ul>
-      )}
+      {section.type === "source_list" &&
+        (section.sources.length === 0 ? (
+          <p className="empty">報じた媒体の情報がありません。</p>
+        ) : (
+          <ul className="source-list">
+            {section.sources.map((s) => (
+              <li key={s.domain}>
+                <a href={s.sampleUrl} target="_blank" rel="noreferrer">
+                  {s.domain}
+                </a>
+                <span className="source-count">{s.count} 件</span>
+              </li>
+            ))}
+          </ul>
+        ))}
       {section.type === "stat_row" && (
         <div className="stat-row">
           <div className="stat">

@@ -131,6 +131,33 @@ function TrendOutput({ output }: { output: Record<string, unknown> }) {
   );
 }
 
+function MediaBreakdownOutput({ output }: { output: Record<string, unknown> }) {
+  if (typeof output.total !== "number" || !Array.isArray(output.top)) return null;
+  const top = output.top as { domain: string; count: number; share: number }[];
+  if (output.total === 0 || top.length === 0) {
+    return <p className="empty">プールにはまだ記事がありません。</p>;
+  }
+  const domainCount = typeof output.domainCount === "number" ? output.domainCount : top.length;
+  return (
+    <div className="media-breakdown">
+      <p className="hot-caption">
+        累計 {output.total.toLocaleString()} 件・媒体 {domainCount} 種類。多い媒体から順に、
+        件数と全体に占める割合です。
+      </p>
+      <ul className="source-list">
+        {top.map((m) => (
+          <li key={m.domain}>
+            <span>{m.domain}</span>
+            <span className="source-count">
+              {m.count} 件（{Math.round(m.share * 100)}%）
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function DocOutput({
   output,
   field,
@@ -152,9 +179,13 @@ function DocOutput({
 
 function ListViewsOutput({ output }: { output: Record<string, unknown> }) {
   if (!Array.isArray(output.views)) return null;
+  const views = output.views as { id: number; title: string }[];
+  if (views.length === 0) {
+    return <p className="empty">生成された画面はまだありません。</p>;
+  }
   return (
     <ul className="view-rows">
-      {(output.views as { id: number; title: string }[]).map((v) => (
+      {views.map((v) => (
         <li key={v.id}>{v.title}</li>
       ))}
     </ul>
@@ -233,6 +264,8 @@ function ToolOutput({
       return <PoolStatusOutput output={output} />;
     case "search_articles":
       return <SearchOutput output={output} />;
+    case "media_breakdown":
+      return <MediaBreakdownOutput output={output} />;
     case "tone_trend":
       return <TrendOutput output={output} />;
     case "get_baseline":
