@@ -51,6 +51,7 @@
 - **修正案**:
   - `build_view` の `verifyViewSpec` と `saveView` には `cluster.articles`（およびその URL 集合・件数）を渡すように統一する。
   - `args.keyword` 指定時のタイトルに問い番号を含めず（画面ヘッダに `questionId` バッジが既に表示されるため `「${args.keyword}」に関する記事（${ top?.title ?? ... }）` 等にするか、キーワード文字列中の数値を許容集合に含める）、空クラスタ時のフォールバックタイトルも数値を含まない見出しにする。
+- **対応**: 修正済み。実コードで不整合を確認し、`build_view` の `verifyViewSpec`（記事集合・URL 集合・trend）と `saveView`（件数）を `cluster.articles` に統一した（cron 生成・出来事画面の経路と同契約）。キーワード時のタイトルは問いラベルを使わず「『キーワード』記事：先頭見出し」形式に変更し、`factualProse` の空クラスタ時フォールバックタイトルも数値を含まない見出しにした。
 
 ### 4. [P1] 検証ゲートの `allowedNumbersFor` が `seendate` の年月日やカンマ有無・トレンド数値を許容せず、正当な日付表現やドキュメント仕様（`docs/generative-ui.md`）と乖離している
 

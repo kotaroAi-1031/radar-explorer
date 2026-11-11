@@ -260,11 +260,22 @@ function buildTools(env: Env) {
             baseline: BASELINES[qid] ?? "",
           });
           if (args.keyword) {
-            spec.title = `${QUESTION_LABELS[qid]}：「${args.keyword}」の画面`;
+            // No question label in the title: its number is not part of
+            // the input set, so the gate would flag it. The rendered
+            // screen already shows the question badge in its header.
+            const topTitle = cluster.articles[0]?.title;
+            spec.title = topTitle
+              ? `「${args.keyword}」の記事：${topTitle}`
+              : `「${args.keyword}」の記事`;
           }
+          // Verify and save against the cluster the spec was built
+          // from — the same contract as the cron and event-view paths.
+          // The prose cites the cluster's size and URLs, not the whole
+          // search result's.
           const warnings = verifyViewSpec(spec, {
-            articleUrls: new Set(withFetched.map((a) => a.url)),
-            articles: withFetched,
+            articleUrls: new Set(cluster.articles.map((a) => a.url)),
+            articles: cluster.articles,
+            trend,
             baseline: BASELINES[qid] ?? "",
             existingProse: await recentViewProse(env, qid, cluster.key),
           });
@@ -273,7 +284,7 @@ function buildTools(env: Env) {
             qid,
             cluster.key,
             spec,
-            withFetched.length,
+            cluster.articles.length,
             warnings,
             null,
             "rule",
