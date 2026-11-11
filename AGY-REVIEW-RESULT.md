@@ -80,6 +80,7 @@
 - **修正案**:
   - `runRadarCheck` ではクラスタごとのループ内で `pickModel(env)` を確認し、neurons ガードにより生成がスキップされた場合は当該問いの `state`（`last_check_at` / `frontier`）を更新せず次回チェックへ持ち越す。
   - `maybeGenerateTitle` でも `pickModelForUsage(await neuronsUsedToday(this.env)) === null` の場合は LLM 呼び出しを行わず決定的な `fallbackTitle(userText)` を使用する。
+- **対応**: 修正済み。実コードで3点とも再現を確認し、(1) ガード停止時は問いの `state` を更新せず差分を持ち越す、(2) クラスタごとの反復で `pickModel(env)` を再確認してモデル切替・停止を即時反映する、(3) `maybeGenerateTitle` はガード到達時にモデル呼び出しをせず `fallbackTitle` を使う、よう変更した。なお (1) のトレードオフとして、ループ途中でガードが発動した場合に同回で生成済みのクラスタは翌日再生成され重複画面が残りうるが、差分が静かに失われる元の不具合より可視で無害な側を取った。あわせて指摘8の `runRadarCheck` 内 `newArticlesSince` の例外捕捉もこの変更に含めた（問い単位で記録して継続し、その問いの `state` は進めない）。自動生成の再開に関わる設定変更はしていない（消費抑制と持ち越しのみ）。
 
 ### 6. [P1] Generative UI の `ToolOutput` に `media_breakdown` の描画分岐が無く、媒体内訳ツールの結果が画面に表示されない（＋一部部品の空状態欠落）
 

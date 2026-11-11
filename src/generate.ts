@@ -500,25 +500,56 @@ export async function runRadarCheck(env: Env): Promise<RadarCheckSummary> {
     // not produce an unbounded flood; afterwards, everything since the
     // last check.
     const since = state?.last_check_at ?? new Date(Date.now() - 24 * 3600 * 1000).toISOString();
-    const fresh = await newArticlesSince(env, qid, since);
     const entry: RadarCheckSummary["perQuestion"][number] = {
       questionId: qid,
-      newArticles: fresh.length,
+      newArticles: 0,
       frontierAdvanced,
       views: 0,
     };
     summary.perQuestion.push(entry);
 
+    // A pool fetch failure skips only this question; its state stays
+    // untouched so the same window is retried on the next check.
+    let fresh: Awaited<ReturnType<typeof newArticlesSince>>;
+    try {
+      fresh = await newArticlesSince(env, qid, since);
+    } catch (err) {
+      entry.skipped = `pool fetch failed: ${err instanceof Error ? err.message : String(err)}`;
+      continue;
+    }
+    entry.newArticles = fresh.length;
+
+    // When the neurons guard stops generation, the diff must not be
+    // marked as processed: the state row stays where it was, so the
+    // skipped articles are picked up again by a later check (after the
+    // UTC day rolls over) instead of being lost for good. The price is
+    // that clusters already generated in the same run, before the
+    // guard tripped mid-loop, are generated again — a visible
+    // duplicate, never silent loss.
+    let carryOver = false;
     if (shouldTrigger(fresh.length, frontierAdvanced)) {
-      const model = await pickModel(env);
+      let model = await pickModel(env);
       summary.model = model;
       if (!model) {
         entry.skipped = "neurons guard: daily budget exhausted";
+        carryOver = true;
       } else {
         const clusters = clusterArticles(fresh).filter(
           (c) => c.articles.length >= MIN_CLUSTER_SIZE,
         );
         for (const cluster of clusters.slice(0, MAX_VIEWS_PER_QUESTION)) {
+          // Re-check the guard per cluster: one question's clusters
+          // can spend enough neurons to cross the fallback / stop
+          // thresholds mid-loop, and the switch must take effect
+          // here, not only on the next question.
+          const current = await pickModel(env);
+          if (!current) {
+            entry.skipped = "neurons guard: daily budget exhausted";
+            carryOver = true;
+            break;
+          }
+          model = current;
+          summary.model = current;
           try {
             const {
               spec,
@@ -546,12 +577,14 @@ export async function runRadarCheck(env: Env): Promise<RadarCheckSummary> {
       }
     }
 
-    await env.DB.prepare(
-      "INSERT INTO state (question_id, last_check_at, frontier, total) VALUES (?,?,?,?) " +
-        "ON CONFLICT(question_id) DO UPDATE SET last_check_at = excluded.last_check_at, frontier = excluded.frontier, total = excluded.total",
-    )
-      .bind(qid, checkedAt, pool.frontier, pool.total)
-      .run();
+    if (!carryOver) {
+      await env.DB.prepare(
+        "INSERT INTO state (question_id, last_check_at, frontier, total) VALUES (?,?,?,?) " +
+          "ON CONFLICT(question_id) DO UPDATE SET last_check_at = excluded.last_check_at, frontier = excluded.frontier, total = excluded.total",
+      )
+        .bind(qid, checkedAt, pool.frontier, pool.total)
+        .run();
+    }
   }
 
   summary.neuronsUsedToday = await neuronsUsedToday(env);

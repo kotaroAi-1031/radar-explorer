@@ -10,6 +10,7 @@ import {
   buildEventView,
   estimateNeurons,
   hotEvents,
+  neuronsUsedToday,
   recentViewProse,
   recordNeurons,
   runRadarCheck,
@@ -21,6 +22,7 @@ import {
   clusterArticles,
   fallbackTitle,
   isPlaceholderTitle,
+  pickModelForUsage,
   sanitizeGeneratedTitle,
 } from "./logic";
 import { materializeViewSpec, ruleBasedChoice, verifyViewSpec } from "./views";
@@ -359,32 +361,39 @@ export class ExplorerAgent extends AIChatAgent<Env> {
       const assistantText =
         (firstAssistant ? messageText(firstAssistant) : "") || assistantReplyText;
       let title = "";
-      try {
-        const res = (await this.env.AI.run(MODEL_FAST, {
-          messages: [
-            {
-              role: "system",
-              content:
-                "あなたは会話に短い日本語の題名を付ける係です。題名だけを1行で出力してください。説明文・引用符・末尾の句読点は付けないでください。",
-            },
-            {
-              role: "user",
-              content:
-                `次のやり取りの内容を表す題名を、日本語で20文字以内で付けてください。` +
-                `日付や時刻は含めないでください。\n\n利用者: ${userText.slice(0, 400)}\n案内役: ${assistantText.slice(0, 400)}`,
-            },
-          ],
-          max_tokens: 48,
-        })) as AiRunResult;
-        const neurons = estimateNeurons(
-          MODEL_FAST,
-          res.usage?.prompt_tokens ?? 0,
-          res.usage?.completion_tokens ?? 0,
-        );
-        if (neurons > 0) await recordNeurons(this.env, neurons).catch(() => undefined);
-        title = sanitizeGeneratedTitle(typeof res.response === "string" ? res.response : "");
-      } catch (err) {
-        console.error("thread title generation failed", err);
+      // Titling spends from the same daily neurons budget: once the
+      // guard has stopped generation for the day, skip the model call
+      // entirely and let the deterministic fallback below name the
+      // thread instead of spending anyway.
+      const guardAllows = pickModelForUsage(await neuronsUsedToday(this.env)) !== null;
+      if (guardAllows) {
+        try {
+          const res = (await this.env.AI.run(MODEL_FAST, {
+            messages: [
+              {
+                role: "system",
+                content:
+                  "あなたは会話に短い日本語の題名を付ける係です。題名だけを1行で出力してください。説明文・引用符・末尾の句読点は付けないでください。",
+              },
+              {
+                role: "user",
+                content:
+                  `次のやり取りの内容を表す題名を、日本語で20文字以内で付けてください。` +
+                  `日付や時刻は含めないでください。\n\n利用者: ${userText.slice(0, 400)}\n案内役: ${assistantText.slice(0, 400)}`,
+              },
+            ],
+            max_tokens: 48,
+          })) as AiRunResult;
+          const neurons = estimateNeurons(
+            MODEL_FAST,
+            res.usage?.prompt_tokens ?? 0,
+            res.usage?.completion_tokens ?? 0,
+          );
+          if (neurons > 0) await recordNeurons(this.env, neurons).catch(() => undefined);
+          title = sanitizeGeneratedTitle(typeof res.response === "string" ? res.response : "");
+        } catch (err) {
+          console.error("thread title generation failed", err);
+        }
       }
       if (!title) title = fallbackTitle(userText);
       if (!title) return;
