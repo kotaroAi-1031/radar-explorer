@@ -7,14 +7,14 @@
 
 - 単一 Cloudflare Worker（Workers Assets の SPA 配信 + Durable Objects 同居）
 - フロント: React 19 + `useAgentChat`（`@cloudflare/ai-chat/react`）+
-  `useAgentToolEvents`（`agents/react`）
+  `useAgent`（`agents/react`）
 - Agent: `AIChatAgent`（`@cloudflare/ai-chat`）
 - モデル接続: `createAI({ binding: env.AI })`（`agents/models/ai-sdk`）。
   Workers AI バインディング直結で API キー不要
 - MCP: `createMcpHandler` + `@modelcontextprotocol/server` を同一 Worker の
   `/mcp` に配置（ステートレス、読み取り専用）
 - データ: Turso `radar-gdelt-q1`〜`q6` は読み取り専用。新規 D1 を 1 つ
-  （`generated_views` / `state` / `neurons`）
+  （`generated_views` / `state` / `neurons` / `threads`）
 - 運用: デプロイとリソース操作は `cf` CLI（npm パッケージ `cf`）
 - 認証: **Cloudflare Access で所有者本人のみに制限**（Access Application
   「Radar Explorer」、許可はメールアドレス宛ワンタイムコードでログインした
@@ -45,8 +45,9 @@
 - チャート: TanStack Charts（`@tanstack/charts`）。Recharts は使わない
   （ユーザーの既決ルール）。grammar-of-graphics 型の `defineChart` に
   barY（件数）/ lineY（平均トーン）の marks を渡す
-- UI 部品: Base UI（`@base-ui/react`）を直接使う（shadcn/ui は使わない）。
-  サイドバーのタブに使用
+- UI 部品: shadcn/ui は使わない。部品が必要になったら Base UI
+  （`@base-ui/react`）を直接使う方針で、依存には含めているが、現行の
+  画面は素の React 部品で構成しており未使用
 - 描画: Tailwind は使わず、最新の CSS 機能（カスタムプロパティ、color-mix、
   コンテナ的なレイアウト、View Transitions 前提の素直な遷移）で書く
 - Markdown: 助手のテキストは Streamdown で描画する（Agents 公式例の作法。

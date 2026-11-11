@@ -291,16 +291,46 @@ export function extractUrls(text: string): string[] {
 }
 
 /** Numbers that may legitimately appear in generated prose: every number
- *  in the input titles/seendates, plus the cluster size itself. */
+ *  in the input titles/seendates, the cluster size itself, and the
+ *  trend's daily counts and tones (see docs/generative-ui.md). */
 export function allowedNumbersFor(
   articles: { title: string | null; seendate: string | null }[],
+  trend: { count: number; avgTone: number | null }[] = [],
 ): Set<string> {
   const allowed = new Set<string>();
+  const add = (n: string) => {
+    allowed.add(n);
+    // A comma-grouped number and its plain spelling are the same
+    // number ("1,250" in a headline, "1250" in prose): allow both.
+    const plain = n.replace(/,/g, "");
+    if (plain !== n) allowed.add(plain);
+  };
   for (const a of articles) {
-    for (const n of extractNumbers(`${a.title ?? ""} ${a.seendate ?? ""}`)) {
-      allowed.add(n);
+    for (const n of extractNumbers(a.title ?? "")) add(n);
+    if (a.seendate) {
+      for (const n of extractNumbers(a.seendate)) add(n);
+      // A seendate ("20260815T120000Z") legitimately shows up in prose
+      // as a calendar date ("2026年8月15日"): register the year, month
+      // and day, with and without zero padding.
+      const m = a.seendate.match(/^(\d{4})(\d{2})(\d{2})/);
+      if (m) {
+        add(m[1]);
+        add(m[2]);
+        add(String(Number(m[2])));
+        add(m[3]);
+        add(String(Number(m[3])));
+      }
     }
   }
   allowed.add(String(articles.length));
+  for (const p of trend) {
+    add(String(p.count));
+    if (p.avgTone !== null) {
+      // Prose may round a tone to one decimal or to an integer;
+      // extractNumbers drops the sign, so register absolute spellings.
+      add(Math.abs(p.avgTone).toFixed(1));
+      add(String(Math.round(Math.abs(p.avgTone))));
+    }
+  }
   return allowed;
 }

@@ -76,26 +76,36 @@ export default {
     }
 
     if (url.pathname === "/api/status") {
-      const [questions, neurons] = await Promise.all([poolStatus(env), neuronsUsedToday(env)]);
-      return json({ questions, neuronsUsedToday: neurons });
+      try {
+        const [questions, neurons] = await Promise.all([poolStatus(env), neuronsUsedToday(env)]);
+        return json({ questions, neuronsUsedToday: neurons });
+      } catch (err) {
+        console.error("status failed", err);
+        return json({ error: "状態を取得できませんでした。" }, 500);
+      }
     }
 
     if (url.pathname === "/api/views") {
-      const rs = await env.DB.prepare(
-        "SELECT id, question_id, title, spec, article_count, verified, warnings, origin, created_at FROM generated_views ORDER BY id DESC LIMIT 20",
-      ).all();
-      const views = rs.results.map((r) => ({
-        id: r.id,
-        question_id: r.question_id,
-        title: r.title,
-        spec: JSON.parse(String(r.spec)),
-        article_count: r.article_count,
-        verified: r.verified,
-        warnings: r.warnings,
-        origin: r.origin,
-        created_at: r.created_at,
-      }));
-      return json({ views });
+      try {
+        const rs = await env.DB.prepare(
+          "SELECT id, question_id, title, spec, article_count, verified, warnings, origin, created_at FROM generated_views ORDER BY id DESC LIMIT 20",
+        ).all();
+        const views = rs.results.map((r) => ({
+          id: r.id,
+          question_id: r.question_id,
+          title: r.title,
+          spec: JSON.parse(String(r.spec)),
+          article_count: r.article_count,
+          verified: r.verified,
+          warnings: r.warnings,
+          origin: r.origin,
+          created_at: r.created_at,
+        }));
+        return json({ views });
+      } catch (err) {
+        console.error("views failed", err);
+        return json({ error: "画面一覧を取得できませんでした。" }, 500);
+      }
     }
 
     if (url.pathname === "/api/check-now" && request.method === "POST") {
