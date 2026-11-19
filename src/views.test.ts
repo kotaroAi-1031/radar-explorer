@@ -417,6 +417,20 @@ describe("verification gate", () => {
     expect(verifyViewSpec(spec, ctx(withNumber))).toEqual([]);
   });
 
+  it("accepts a calendar date spelled out from a seendate", () => {
+    const spec = materialize(three, choice({ summary: "2026年8月15日に報じられた。" }));
+    expect(verifyViewSpec(spec, ctx(three))).toEqual([]);
+  });
+
+  it("accepts prose citing the trend when the context carries it", () => {
+    const trend = [{ day: "20260815", count: 42, avgTone: -2.34 }];
+    const spec = materialize(
+      three,
+      choice({ summary: "この日は42件の報道があり、平均トーンは-2.3だった。" }),
+    );
+    expect(verifyViewSpec(spec, { ...ctx(three), trend })).toEqual([]);
+  });
+
   it("rejects URLs pasted into prose", () => {
     const spec = materialize(
       three,
@@ -544,8 +558,18 @@ describe("verification gate: duplicate detection", () => {
 describe("deterministic prose (rule / fallback)", () => {
   it("summaries differ between events and pass the duplicate gate against each other", () => {
     const other = [
-      article("https://x.example/1", "Zulu yankee xray whiskey first", "x.example", "20260815T030000Z"),
-      article("https://y.example/2", "Zulu yankee xray whiskey second", "y.example", "20260815T010000Z"),
+      article(
+        "https://x.example/1",
+        "Zulu yankee xray whiskey first",
+        "x.example",
+        "20260815T030000Z",
+      ),
+      article(
+        "https://y.example/2",
+        "Zulu yankee xray whiskey second",
+        "y.example",
+        "20260815T010000Z",
+      ),
     ];
     const specA = materialize(three, ruleBasedChoice(clusterOf(three)[0], [], "問い5"));
     const specB = materialize(other, ruleBasedChoice(clusterOf(other)[0], [], "問い5"));
@@ -555,10 +579,7 @@ describe("deterministic prose (rule / fallback)", () => {
       existingProse: prose,
     });
     const sumA = specA.sections.find((s) => s.type === "summary")?.text ?? "";
-    const warningsB = verifyViewSpec(
-      specB,
-      ctxFor(other, [{ title: specA.title, summary: sumA }]),
-    );
+    const warningsB = verifyViewSpec(specB, ctxFor(other, [{ title: specA.title, summary: sumA }]));
     expect(warningsB.filter((w) => w.startsWith(DUPLICATE_WARNING_PREFIX))).toEqual([]);
     // And the rule summary itself contains no stray label number warning.
     expect(warningsB).toEqual([]);

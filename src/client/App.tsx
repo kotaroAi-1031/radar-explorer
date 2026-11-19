@@ -131,6 +131,33 @@ function TrendOutput({ output }: { output: Record<string, unknown> }) {
   );
 }
 
+function MediaBreakdownOutput({ output }: { output: Record<string, unknown> }) {
+  if (typeof output.total !== "number" || !Array.isArray(output.top)) return null;
+  const top = output.top as { domain: string; count: number; share: number }[];
+  if (output.total === 0 || top.length === 0) {
+    return <p className="empty">プールにはまだ記事がありません。</p>;
+  }
+  const domainCount = typeof output.domainCount === "number" ? output.domainCount : top.length;
+  return (
+    <div className="media-breakdown">
+      <p className="hot-caption">
+        累計 {output.total.toLocaleString()} 件・媒体 {domainCount} 種類。多い媒体から順に、
+        件数と全体に占める割合です。
+      </p>
+      <ul className="source-list">
+        {top.map((m) => (
+          <li key={m.domain}>
+            <span>{m.domain}</span>
+            <span className="source-count">
+              {m.count} 件（{Math.round(m.share * 100)}%）
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function DocOutput({
   output,
   field,
@@ -152,9 +179,13 @@ function DocOutput({
 
 function ListViewsOutput({ output }: { output: Record<string, unknown> }) {
   if (!Array.isArray(output.views)) return null;
+  const views = output.views as { id: number; title: string }[];
+  if (views.length === 0) {
+    return <p className="empty">生成された画面はまだありません。</p>;
+  }
   return (
     <ul className="view-rows">
-      {(output.views as { id: number; title: string }[]).map((v) => (
+      {views.map((v) => (
         <li key={v.id}>{v.title}</li>
       ))}
     </ul>
@@ -205,7 +236,7 @@ function HotEventsOutput({
             <button
               type="button"
               className="event-open"
-              disabled={pendingKey === e.clusterKey}
+              disabled={pendingKey !== null}
               onClick={() => onOpenEvent(e.questionId, e.clusterKey)}
             >
               {pendingKey === e.clusterKey ? "生成中…" : "画面を見る"}
@@ -233,6 +264,8 @@ function ToolOutput({
       return <PoolStatusOutput output={output} />;
     case "search_articles":
       return <SearchOutput output={output} />;
+    case "media_breakdown":
+      return <MediaBreakdownOutput output={output} />;
     case "tone_trend":
       return <TrendOutput output={output} />;
     case "get_baseline":
@@ -356,7 +389,8 @@ function ChatPanel({
 }) {
   const [input, setInput] = useState("");
   const [pendingKey, setPendingKey] = useState<string | null>(null);
-  const chatEndRef = useRef<HTMLDivElement>(null);
+  const [eventError, setEventError] = useState<string | null>(null);
+  const messagesRef = useRef<HTMLDivElement>(null);
 
   const agent = useAgent({
     agent: "explorer-agent",
@@ -377,13 +411,20 @@ function ChatPanel({
     messages: rawMessages,
     sendMessage,
     status,
+    error,
   } = useAgentChat({
     agent,
   });
   const messages = rawMessages as unknown as ChatMessage[];
 
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    // Scroll the message container itself — never the window, so the
+    // stacked mobile layout cannot fling the sidebar off-screen — and
+    // only once there is something to scroll to.
+    const el = messagesRef.current;
+    if (!el || messages.length === 0) return;
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    el.scrollTo({ top: el.scrollHeight, behavior: reduce ? "auto" : "smooth" });
   }, [messages]);
 
   const wasBusy = useRef(false);
@@ -404,28 +445,64 @@ function ChatPanel({
 
   const openEvent = useCallback<OpenEventFn>(
     (questionId, clusterKey) => {
+      // One generation at a time: while a request is in flight every
+      // event button is disabled (see HotEventsOutput); this guard
+      // covers repeats that bypass the button state.
+      if (pendingKey !== null) return;
       setPendingKey(clusterKey);
-      void fetch(`/api/threads/${encodeURIComponent(threadId)}/event-view`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ questionId, clusterKey }),
-      })
-        .catch(() => undefined)
-        .finally(() => setPendingKey(null));
+      setEventError(null);
+      void (async () => {
+        try {
+          const res = await fetch(`/api/threads/${encodeURIComponent(threadId)}/event-view`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ questionId, clusterKey }),
+          });
+          const data = (await res.json().catch(() => null)) as { error?: unknown } | null;
+          if (!res.ok) {
+            setEventError(
+              typeof data?.error === "string" ? data.error : "画面の生成に失敗しました。",
+            );
+            return;
+          }
+          // The view was appended server-side: refresh the sidebar's
+          // view list and this thread's updated-at too.
+          onViewsChanged();
+          onThreadsChanged();
+        } catch {
+          setEventError("画面の生成に失敗しました。通信状態を確認してもう一度お試しください。");
+        } finally {
+          setPendingKey(null);
+        }
+      })();
     },
-    [threadId],
+    [threadId, pendingKey, onViewsChanged, onThreadsChanged],
   );
 
   return (
     <div className="chat">
-      <div className="messages">
+      <div className="messages" ref={messagesRef} role="log" aria-live="polite">
         {messages.map((m) => (
           <div key={m.id} className={`msg ${m.role}`}>
             <div className="msg-role">{m.role === "user" ? "あなた" : "案内役"}</div>
             {<MessageParts message={m} onOpenEvent={openEvent} pendingKey={pendingKey} />}
           </div>
         ))}
-        <div ref={chatEndRef} />
+        {status === "submitted" && (
+          <p className="empty" role="status">
+            案内役が応答を準備しています…
+          </p>
+        )}
+        {(status === "error" || error != null) && (
+          <p className="empty" role="alert">
+            応答の取得に失敗しました。時間をおいてもう一度お試しください。
+          </p>
+        )}
+        {eventError && (
+          <p className="empty" role="alert">
+            {eventError}
+          </p>
+        )}
       </div>
       <form
         onSubmit={(e) => {
@@ -502,20 +579,29 @@ export function App() {
   const creatingRef = useRef(false);
 
   const loadThreads = useCallback(async () => {
-    const res = await fetch("/api/threads");
-    if (res.ok) {
-      const data = (await res.json()) as { threads: ThreadInfo[] };
-      setThreads(data.threads);
-      return data.threads;
+    try {
+      const res = await fetch("/api/threads");
+      if (res.ok) {
+        const data = (await res.json()) as { threads: ThreadInfo[] };
+        setThreads(data.threads);
+        return data.threads;
+      }
+    } catch {
+      // Network failure: keep showing the current list instead of
+      // surfacing an unhandled rejection; a later load can recover.
     }
     return null;
   }, []);
 
   const loadViews = useCallback(async () => {
-    const res = await fetch("/api/views");
-    if (res.ok) {
-      const data = (await res.json()) as { views: GeneratedView[] };
-      setViews(data.views);
+    try {
+      const res = await fetch("/api/views");
+      if (res.ok) {
+        const data = (await res.json()) as { views: GeneratedView[] };
+        setViews(data.views);
+      }
+    } catch {
+      // Same as loadThreads: a failed refresh keeps the current list.
     }
   }, []);
 
@@ -533,6 +619,8 @@ export function App() {
       const data = (await res.json()) as { thread: ThreadInfo };
       setThreads((prev) => [data.thread, ...prev.filter((t) => t.id !== data.thread.id)]);
       return data.thread;
+    } catch {
+      return null;
     } finally {
       creatingRef.current = false;
       setCreating(false);
@@ -595,6 +683,7 @@ export function App() {
                 key={t.id}
                 type="button"
                 className={t.id === activeId ? "thread-item active" : "thread-item"}
+                aria-current={t.id === activeId ? "page" : undefined}
                 onClick={() => setActiveId(t.id)}
               >
                 <span className="thread-title">{t.title}</span>

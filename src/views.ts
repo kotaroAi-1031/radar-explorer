@@ -284,7 +284,10 @@ function section(type: ViewSectionType): { type: ViewSectionType; heading: strin
 
 function factualProse<T extends Article>(
   cluster: Cluster<T>,
-  questionLabel: string,
+  // Kept in the signature for the callers' shape, but deliberately not
+  // used in the prose: the label's question number is not in the input
+  // set the verification gate checks against.
+  _questionLabel: string,
 ): Pick<ViewChoice, "title" | "summary" | "impact"> {
   const top = cluster.articles[0];
   // The summary names this event's own headlines: a fixed template
@@ -303,7 +306,10 @@ function factualProse<T extends Article>(
       ? `${headlines.map((t) => `「${t}」`).join("、")}など、同じ出来事を報じた記事 ${cluster.articles.length} 件を検知しました。内訳は下の部品のとおりです。`
       : `同じ出来事を報じた記事 ${cluster.articles.length} 件を検知しました。内訳は下の部品のとおりです。`;
   return {
-    title: top?.title ?? questionLabel,
+    // An empty cluster has no headline to borrow: use a number-free
+    // heading instead of the question label, whose question number the
+    // gate would flag as a number absent from the input.
+    title: top?.title ?? "新しい記事はまだありません",
     summary,
     impact: "",
   };
@@ -375,6 +381,9 @@ export interface ViewGateContext {
   articleUrls: Set<string>;
   /** Articles the prose may draw numbers from. */
   articles: { title: string | null; seendate: string | null }[];
+  /** The question's tone trend shown in the view: prose may cite its
+   *  daily counts and tones, so they belong to the allowed numbers. */
+  trend?: ToneTrendPoint[];
   /** The question's baseline text: a summary that merely copies it is
    *  not a summary of the event and is flagged as a duplicate. */
   baseline?: string;
@@ -398,7 +407,7 @@ export const DUPLICATE_WARNING_PREFIX = "重複検出:";
 /** Returns a list of warnings; an empty list means the spec passed. */
 export function verifyViewSpec(spec: ViewSpec, ctx: ViewGateContext): string[] {
   const warnings: string[] = [];
-  const allowed = allowedNumbersFor(ctx.articles);
+  const allowed = allowedNumbersFor(ctx.articles, ctx.trend ?? []);
   const prose: string[] = [spec.title];
   for (const s of spec.sections) {
     if (s.heading) prose.push(s.heading);

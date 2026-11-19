@@ -3,6 +3,19 @@ import type { ArticleRef } from "../views";
 import { ToneChart } from "./ToneChart";
 import { formatSeendate } from "./format";
 
+/** Only http(s) URLs become links. A view spec is data rendered
+ *  verbatim; its URLs come from the pool and are expected to be web
+ *  URLs, but anything else (javascript:, data:, malformed) is shown as
+ *  plain text instead of a navigable href. */
+function safeUrl(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "http:" || parsed.protocol === "https:" ? url : null;
+  } catch {
+    return null;
+  }
+}
+
 export function ArticleCards({
   articles,
 }: {
@@ -18,19 +31,26 @@ export function ArticleCards({
   if (articles.length === 0) return <p className="empty">該当する記事はプールにありません。</p>;
   return (
     <div className="cards">
-      {articles.map((a, i) => (
-        <article key={a.url} className="card rise" style={{ "--i": i } as React.CSSProperties}>
-          <a href={a.url} target="_blank" rel="noreferrer">
-            {a.title ?? "(タイトルなし)"}
-          </a>
-          <div className="card-meta">
-            <span>{a.domain ?? "?"}</span>
-            <span>{formatSeendate(a.seendate)}</span>
-            {a.tone !== null && <span>tone {a.tone.toFixed(1)}</span>}
-            {a.sourceCountry && <span>{a.sourceCountry}</span>}
-          </div>
-        </article>
-      ))}
+      {articles.map((a, i) => {
+        const href = safeUrl(a.url);
+        return (
+          <article key={a.url} className="card rise" style={{ "--i": i } as React.CSSProperties}>
+            {href ? (
+              <a href={href} target="_blank" rel="noreferrer">
+                {a.title ?? "(タイトルなし)"}
+              </a>
+            ) : (
+              <span>{a.title ?? "(タイトルなし)"}</span>
+            )}
+            <div className="card-meta">
+              <span>{a.domain ?? "?"}</span>
+              <span>{formatSeendate(a.seendate)}</span>
+              {a.tone !== null && <span>tone {a.tone.toFixed(1)}</span>}
+              {a.sourceCountry && <span>{a.sourceCountry}</span>}
+            </div>
+          </article>
+        );
+      })}
     </div>
   );
 }
@@ -39,15 +59,22 @@ function Timeline({ articles }: { articles: ArticleRef[] }) {
   if (articles.length === 0) return <p className="empty">時系列にできる記事がありません。</p>;
   return (
     <ol className="timeline">
-      {articles.map((a) => (
-        <li key={a.url}>
-          <time>{formatSeendate(a.seendate)}</time>
-          <a href={a.url} target="_blank" rel="noreferrer">
-            {a.title ?? "(タイトルなし)"}
-          </a>
-          <span className="tl-domain">{a.domain ?? ""}</span>
-        </li>
-      ))}
+      {articles.map((a) => {
+        const href = safeUrl(a.url);
+        return (
+          <li key={a.url}>
+            <time>{formatSeendate(a.seendate)}</time>
+            {href ? (
+              <a href={href} target="_blank" rel="noreferrer">
+                {a.title ?? "(タイトルなし)"}
+              </a>
+            ) : (
+              <span>{a.title ?? "(タイトルなし)"}</span>
+            )}
+            <span className="tl-domain">{a.domain ?? ""}</span>
+          </li>
+        );
+      })}
     </ol>
   );
 }
@@ -69,18 +96,28 @@ function Section({ section }: { section: ViewSection }) {
       {section.type === "article_cards" && <ArticleCards articles={section.articles} />}
       {section.type === "timeline" && <Timeline articles={section.articles} />}
       {section.type === "tone_chart" && <ToneChart trend={section.trend} />}
-      {section.type === "source_list" && (
-        <ul className="source-list">
-          {section.sources.map((s) => (
-            <li key={s.domain}>
-              <a href={s.sampleUrl} target="_blank" rel="noreferrer">
-                {s.domain}
-              </a>
-              <span className="source-count">{s.count} 件</span>
-            </li>
-          ))}
-        </ul>
-      )}
+      {section.type === "source_list" &&
+        (section.sources.length === 0 ? (
+          <p className="empty">報じた媒体の情報がありません。</p>
+        ) : (
+          <ul className="source-list">
+            {section.sources.map((s) => {
+              const href = safeUrl(s.sampleUrl);
+              return (
+                <li key={s.domain}>
+                  {href ? (
+                    <a href={href} target="_blank" rel="noreferrer">
+                      {s.domain}
+                    </a>
+                  ) : (
+                    <span>{s.domain}</span>
+                  )}
+                  <span className="source-count">{s.count} 件</span>
+                </li>
+              );
+            })}
+          </ul>
+        ))}
       {section.type === "stat_row" && (
         <div className="stat-row">
           <div className="stat">

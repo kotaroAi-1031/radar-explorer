@@ -1,5 +1,6 @@
 import { AIChatAgent } from "@cloudflare/ai-chat";
 import { convertToModelMessages, stepCountIs, streamText, tool, type UIMessage } from "ai";
+import { getAgentByName } from "agents";
 import { createAI } from "agents/models/ai-sdk";
 import { z } from "zod";
 import type { Env } from "./env";
@@ -10,6 +11,7 @@ import {
   buildEventView,
   estimateNeurons,
   hotEvents,
+  neuronsUsedToday,
   recentViewProse,
   recordNeurons,
   runRadarCheck,
@@ -21,6 +23,7 @@ import {
   clusterArticles,
   fallbackTitle,
   isPlaceholderTitle,
+  pickModelForUsage,
   sanitizeGeneratedTitle,
 } from "./logic";
 import { materializeViewSpec, ruleBasedChoice, verifyViewSpec } from "./views";
@@ -260,11 +263,22 @@ function buildTools(env: Env) {
             baseline: BASELINES[qid] ?? "",
           });
           if (args.keyword) {
-            spec.title = `${QUESTION_LABELS[qid]}：「${args.keyword}」の画面`;
+            // No question label in the title: its number is not part of
+            // the input set, so the gate would flag it. The rendered
+            // screen already shows the question badge in its header.
+            const topTitle = cluster.articles[0]?.title;
+            spec.title = topTitle
+              ? `「${args.keyword}」の記事：${topTitle}`
+              : `「${args.keyword}」の記事`;
           }
+          // Verify and save against the cluster the spec was built
+          // from — the same contract as the cron and event-view paths.
+          // The prose cites the cluster's size and URLs, not the whole
+          // search result's.
           const warnings = verifyViewSpec(spec, {
-            articleUrls: new Set(withFetched.map((a) => a.url)),
-            articles: withFetched,
+            articleUrls: new Set(cluster.articles.map((a) => a.url)),
+            articles: cluster.articles,
+            trend,
             baseline: BASELINES[qid] ?? "",
             existingProse: await recentViewProse(env, qid, cluster.key),
           });
@@ -273,7 +287,7 @@ function buildTools(env: Env) {
             qid,
             cluster.key,
             spec,
-            withFetched.length,
+            cluster.articles.length,
             warnings,
             null,
             "rule",
@@ -348,32 +362,39 @@ export class ExplorerAgent extends AIChatAgent<Env> {
       const assistantText =
         (firstAssistant ? messageText(firstAssistant) : "") || assistantReplyText;
       let title = "";
-      try {
-        const res = (await this.env.AI.run(MODEL_FAST, {
-          messages: [
-            {
-              role: "system",
-              content:
-                "あなたは会話に短い日本語の題名を付ける係です。題名だけを1行で出力してください。説明文・引用符・末尾の句読点は付けないでください。",
-            },
-            {
-              role: "user",
-              content:
-                `次のやり取りの内容を表す題名を、日本語で20文字以内で付けてください。` +
-                `日付や時刻は含めないでください。\n\n利用者: ${userText.slice(0, 400)}\n案内役: ${assistantText.slice(0, 400)}`,
-            },
-          ],
-          max_tokens: 48,
-        })) as AiRunResult;
-        const neurons = estimateNeurons(
-          MODEL_FAST,
-          res.usage?.prompt_tokens ?? 0,
-          res.usage?.completion_tokens ?? 0,
-        );
-        if (neurons > 0) await recordNeurons(this.env, neurons).catch(() => undefined);
-        title = sanitizeGeneratedTitle(typeof res.response === "string" ? res.response : "");
-      } catch (err) {
-        console.error("thread title generation failed", err);
+      // Titling spends from the same daily neurons budget: once the
+      // guard has stopped generation for the day, skip the model call
+      // entirely and let the deterministic fallback below name the
+      // thread instead of spending anyway.
+      const guardAllows = pickModelForUsage(await neuronsUsedToday(this.env)) !== null;
+      if (guardAllows) {
+        try {
+          const res = (await this.env.AI.run(MODEL_FAST, {
+            messages: [
+              {
+                role: "system",
+                content:
+                  "あなたは会話に短い日本語の題名を付ける係です。題名だけを1行で出力してください。説明文・引用符・末尾の句読点は付けないでください。",
+              },
+              {
+                role: "user",
+                content:
+                  `次のやり取りの内容を表す題名を、日本語で20文字以内で付けてください。` +
+                  `日付や時刻は含めないでください。\n\n利用者: ${userText.slice(0, 400)}\n案内役: ${assistantText.slice(0, 400)}`,
+              },
+            ],
+            max_tokens: 48,
+          })) as AiRunResult;
+          const neurons = estimateNeurons(
+            MODEL_FAST,
+            res.usage?.prompt_tokens ?? 0,
+            res.usage?.completion_tokens ?? 0,
+          );
+          if (neurons > 0) await recordNeurons(this.env, neurons).catch(() => undefined);
+          title = sanitizeGeneratedTitle(typeof res.response === "string" ? res.response : "");
+        } catch (err) {
+          console.error("thread title generation failed", err);
+        }
       }
       if (!title) title = fallbackTitle(userText);
       if (!title) return;
@@ -457,20 +478,46 @@ export class ExplorerAgent extends AIChatAgent<Env> {
     return result.toUIMessageStreamResponse();
   }
 
+  /** Delivery endpoint for a radar-views notice produced by another
+   *  instance: relays the payload to this instance's connected clients.
+   *  The check itself always runs on "main", but each chat thread is
+   *  its own instance, so without this relay only clients connected to
+   *  "main" would ever hear about new views. */
+  async notifyRadarViews(payload: string): Promise<void> {
+    this.broadcast(payload);
+  }
+
   /** Cron entry point (also callable from /api/check-now for verification).
    *  Broadcasts a notice to connected screens when new views were generated. */
   async runRadarCheck(): Promise<RadarCheckSummary> {
     const summary = await runRadarCheck(this.env);
     if (summary.newViews > 0) {
-      this.broadcast(
-        JSON.stringify({
-          type: "radar-views",
-          message: "新しい画面が生成されました",
-          newViews: summary.newViews,
-          viewIds: summary.viewIds,
-          checkedAt: summary.checkedAt,
-        }),
-      );
+      const payload = JSON.stringify({
+        type: "radar-views",
+        message: "新しい画面が生成されました",
+        newViews: summary.newViews,
+        viewIds: summary.viewIds,
+        checkedAt: summary.checkedAt,
+      });
+      this.broadcast(payload);
+      // Relay the same notice to every other thread's instance so a
+      // client viewing any thread refreshes its view list. Relay
+      // failures are logged per thread and never fail the check.
+      try {
+        const rs = await this.env.DB.prepare("SELECT id FROM threads").all();
+        for (const row of rs.results) {
+          const id = String(row.id);
+          if (id === this.name) continue;
+          try {
+            const stub = await getAgentByName(this.env.EXPLORER_AGENT, id);
+            await stub.notifyRadarViews(payload);
+          } catch (err) {
+            console.error("radar-views relay failed", id, err);
+          }
+        }
+      } catch (err) {
+        console.error("radar-views relay failed", err);
+      }
     }
     return summary;
   }

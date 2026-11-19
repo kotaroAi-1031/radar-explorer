@@ -7,7 +7,7 @@
 ## 手順
 
 1. **差分検知**: D1 の `state` に問い別の `last_check_at`（前回チェック時刻）と
-   `last_frontier`（前回の最大 seendate）を保持。各 Turso プールから
+   `frontier`（前回の最大 seendate）を保持。各 Turso プールから
    `fetched_at > last_check_at` の記事を取得する（初回は直近 24 時間分）
 2. **発火判定**（`shouldTrigger`）: 新着が 1 件以上あり、かつ
    （新着 10 件以上 or frontier が前進した）場合だけ生成に進む
@@ -50,6 +50,7 @@ Mistral Small 3.1 に分担させ、実測でツール呼び出し+日本語応�
 | モデル                         | input  | output  |
 | ------------------------------ | ------ | ------- |
 | Llama 4 Scout 17B（メイン）    | 24,545 | 77,273  |
+| Mistral Small 3.1 24B（チャット） | 31,909 | 50,455  |
 | Llama 3.1 8B fp8-fast（補助）  | 4,119  | 34,868  |
 | （参考）Llama 3.3 70B fp8-fast | 26,668 | 204,805 |
 

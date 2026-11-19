@@ -52,9 +52,10 @@ export async function poolStatus(env: Env): Promise<PoolStatusEntry[]> {
   const out: PoolStatusEntry[] = [];
   for (const qid of QUESTION_IDS) {
     const db = tursoClient(env, qid);
-    const agg = await db.execute(
-      "SELECT COUNT(*) AS total, MAX(seendate) AS frontier FROM articles",
-    );
+    const agg = await db.execute({
+      sql: "SELECT COUNT(*) AS total, MAX(seendate) AS frontier FROM articles WHERE question_id = ?",
+      args: [qid],
+    });
     const total = Number(agg.rows[0]?.total ?? 0);
     const frontier = (agg.rows[0]?.frontier as string | null) ?? null;
     let recent24h = 0;
@@ -62,8 +63,8 @@ export async function poolStatus(env: Env): Promise<PoolStatusEntry[]> {
     if (frontierDate) {
       const since = dateToSeendate(new Date(frontierDate.getTime() - 24 * 3600 * 1000));
       const r = await db.execute({
-        sql: "SELECT COUNT(*) AS c FROM articles WHERE seendate >= ?",
-        args: [since],
+        sql: "SELECT COUNT(*) AS c FROM articles WHERE question_id = ? AND seendate >= ?",
+        args: [qid, since],
       });
       recent24h = Number(r.rows[0]?.c ?? 0);
     }
@@ -95,8 +96,10 @@ export async function searchArticles(env: Env, opts: SearchOptions): Promise<Art
   const clauses = ["question_id = ?"];
   const args: (string | number)[] = [opts.questionId];
   if (opts.keyword) {
-    clauses.push("title LIKE ?");
-    args.push(`%${opts.keyword}%`);
+    // Escape LIKE wildcards so a keyword like "100%" or "open_source"
+    // matches literally instead of acting as a pattern.
+    clauses.push("title LIKE ? ESCAPE '\\'");
+    args.push(`%${opts.keyword.replace(/[\\%_]/g, (c) => `\\${c}`)}%`);
   }
   if (opts.since) {
     clauses.push("seendate >= ?");
@@ -215,8 +218,8 @@ export async function toneTrend(
   const rs = await db.execute({
     sql:
       "SELECT substr(seendate, 1, 8) AS day, COUNT(*) AS c, AVG(tone) AS t " +
-      "FROM articles WHERE seendate IS NOT NULL GROUP BY day ORDER BY day DESC LIMIT ?",
-    args: [Math.min(Math.max(days, 1), 90)],
+      "FROM articles WHERE question_id = ? AND seendate IS NOT NULL GROUP BY day ORDER BY day DESC LIMIT ?",
+    args: [questionId, Math.min(Math.max(days, 1), 90)],
   });
   return rs.rows
     .map((r) => ({
@@ -238,8 +241,8 @@ export async function newArticlesSince(
   const rs = await db.execute({
     sql:
       "SELECT url, title, domain, language, source_country, seendate, tone, fetched_at " +
-      "FROM articles WHERE fetched_at > ? ORDER BY fetched_at ASC LIMIT ?",
-    args: [isoTime, cap],
+      "FROM articles WHERE question_id = ? AND fetched_at > ? ORDER BY fetched_at ASC LIMIT ?",
+    args: [qid, isoTime, cap],
   });
   return rs.rows.map((r) => ({
     url: String(r.url),
